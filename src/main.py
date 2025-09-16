@@ -213,80 +213,51 @@ def process_and_display_image(video_id, frame_index, method, clip_limit, use_lab
         return False
 
 def get_current_frame(video_id, frame_index):
-    """Get the current frame from Supervisely using proper app context"""
+    """Get the current frame from Supervisely using direct API access"""
     try:
         print(f"📥 Getting frame {frame_index} from video {video_id}")
         
-        # Try to access the Supervisely app context directly
+        # Direct API creation with hardcoded credentials
         api = None
-        current_video_id = video_id
-        current_frame = frame_index
         
-        # Method 1: Try to access via Supervisely's global context (proper way)
         try:
             # Try to import supervisely if available in Pyodide environment
             import supervisely as sly
             print("✅ Found supervisely module")
             
-            # Try to access the current app context
-            try:
-                # In Supervisely apps, the API is usually available through the app instance
-                from js import window
-                if hasattr(window, 'g'):
-                    # Access global context like in your example
-                    g = window.g
-                    if hasattr(g, 'api') and g.api:
-                        api = g.api
-                        print("✅ Found API via window.g.api")
-                        
-                        # Also get current context
-                        if hasattr(g, 'video_id') and g.video_id:
-                            current_video_id = g.video_id
-                            print(f"✅ Using video_id from context: {current_video_id}")
-                        if hasattr(g, 'frame') and g.frame is not None:
-                            current_frame = g.frame
-                            print(f"✅ Using frame from context: {current_frame}")
-                            
-            except Exception as context_error:
-                print(f"Context access failed: {context_error}")
-                
+            # Create API instance directly
+            server_address = "https://app.supervisely.com"
+            api_token = "zerPjM0yd0UzBXi9EpyaVOjxoiFazNMMSvtWVlS88CL9E5boXbhWMH9k2p32iq5rM9eZ7bAROaf0dCcNNqzk5hmXz67yHFDfkkKqEtXVw8rQLv0YgbhvV2TkA4GOPKYf"
+            
+            api = sly.Api(server_address, api_token)
+            print("✅ Created Supervisely API instance directly")
+            
         except ImportError:
             print("📝 supervisely not available in Pyodide environment")
-        
-        # Method 2: Try the old pattern as fallback
-        if not api:
-            from js import slyApp
-            print("🔍 Trying slyApp fallback pattern...")
-            
-            if hasattr(slyApp, 'app') and slyApp.app:
-                app = slyApp.app
-                
-                # Check for global state/context
-                if hasattr(app, 'globalState') and hasattr(app.globalState, 'api'):
-                    api = app.globalState.api
-                    print("✅ Found API via app.globalState.api")
-                elif hasattr(app, '$store'):
-                    store = getattr(app, '$store')
-                    if hasattr(store, 'state') and hasattr(store.state, 'api'):
-                        api = store.state.api
-                        print("✅ Found API via app.$store.state.api")
-                elif hasattr(app, '$children') and len(getattr(app, '$children', [])) > 0:
-                    main_component = getattr(app, '$children')[0]
-                    if hasattr(main_component, 'api'):
-                        api = main_component.api
-                        print("✅ Found API via app.$children[0].api")
+            # Fallback: try accessing via JavaScript context
+            try:
+                from js import slyApp
+                if hasattr(slyApp, 'app') and slyApp.app:
+                    app = slyApp.app
+                    if hasattr(app, '$children') and len(getattr(app, '$children', [])) > 0:
+                        main_component = getattr(app, '$children')[0]
+                        if hasattr(main_component, 'api'):
+                            api = main_component.api
+                            print("✅ Found API via fallback method")
+            except:
+                pass
         
         # Get or create images cache
         images_cache = {}
         
         if api:
             # Use the proper get_frame_np function
-            img_bgr = get_frame_np(api, images_cache, current_video_id, current_frame)
+            img_bgr = get_frame_np(api, images_cache, video_id, frame_index)
             print(f"✅ Downloaded actual frame via API: {img_bgr.shape}")
             return img_bgr
         else:
             print("❌ No API found, falling back to test image")
-            print("💡 Make sure you're running this within a Supervisely video annotation context")
+            print("💡 Try installing supervisely in the Pyodide environment")
             return create_test_image()
         
     except Exception as e:
