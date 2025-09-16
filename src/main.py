@@ -182,7 +182,7 @@ def apply_css_filters_to_display(method, clip_limit, use_lab):
     from js import document
     
     try:
-        # Find all potential image/video display elements
+        # Find all potential image/video display elements with comprehensive search
         img_elements = document.querySelectorAll('img')
         canvas_elements = document.querySelectorAll('canvas')
         video_elements = document.querySelectorAll('video')
@@ -190,8 +190,17 @@ def apply_css_filters_to_display(method, clip_limit, use_lab):
         # Also look for elements that might contain video frames
         video_containers = document.querySelectorAll('[class*="video"], [class*="player"], [class*="sly"]')
         
+        # Additional comprehensive search for any media elements
+        all_divs = document.querySelectorAll('div[style*="background-image"]')
+        iframe_elements = document.querySelectorAll('iframe')
+        
+        # Try to find the largest image/media element (likely the main frame)
+        all_media_elements = document.querySelectorAll('img, canvas, video, iframe, [style*="background-image"]')
+        
         print(f"🖼️ Found {len(img_elements)} img, {len(canvas_elements)} canvas, {len(video_elements)} video elements")
         print(f"🖼️ Found {len(video_containers)} video container elements")
+        print(f"🖼️ Found {len(all_divs)} background-image divs, {len(iframe_elements)} iframes")
+        print(f"🖼️ Found {len(all_media_elements)} total media elements")
         
         # Generate CSS filter based on method
         css_filter = generate_css_filter(method, clip_limit, use_lab)
@@ -199,55 +208,40 @@ def apply_css_filters_to_display(method, clip_limit, use_lab):
         
         elements_processed = 0
         
-        # Apply to img elements
-        for i, img in enumerate(img_elements):
+        # AGGRESSIVE APPROACH: Apply to ALL media elements to find the right one
+        print("🚀 AGGRESSIVE MODE: Applying to ALL media elements")
+        for i, element in enumerate(all_media_elements):
             try:
-                if hasattr(img, 'naturalWidth') and img.naturalWidth > 50:  # Skip small images
-                    img.style.filter = css_filter
-                    img.style.transition = "filter 0.3s ease"  # Smooth transition
-                    elements_processed += 1
-                    print(f"✅ Applied filter to img element {i}")
-            except Exception as e:
-                print(f"Error applying filter to img {i}: {e}")
-        
-        # Apply to canvas elements
-        for i, canvas in enumerate(canvas_elements):
-            try:
-                if hasattr(canvas, 'width') and canvas.width > 50:
-                    canvas.style.filter = css_filter
-                    canvas.style.transition = "filter 0.3s ease"
-                    elements_processed += 1
-                    print(f"✅ Applied filter to canvas element {i}")
-            except Exception as e:
-                print(f"Error applying filter to canvas {i}: {e}")
-        
-        # Apply to video elements
-        for i, video in enumerate(video_elements):
-            try:
-                video.style.filter = css_filter
-                video.style.transition = "filter 0.3s ease"
-                elements_processed += 1
-                print(f"✅ Applied filter to video element {i}")
-            except Exception as e:
-                print(f"Error applying filter to video {i}: {e}")
-        
-        # Apply to video container elements (may contain the actual video display)
-        for i, container in enumerate(video_containers):
-            try:
-                # Apply to container and all image/canvas children
-                container.style.filter = css_filter
-                container.style.transition = "filter 0.3s ease"
+                element_type = element.tagName.lower()
+                classes = getattr(element, 'className', 'no-class')
                 
-                # Also apply to children
-                children = container.querySelectorAll('img, canvas, video')
-                for child in children:
-                    child.style.filter = css_filter
-                    child.style.transition = "filter 0.3s ease"
+                if element_type == 'img':
+                    width = getattr(element, 'naturalWidth', 0)
+                    height = getattr(element, 'naturalHeight', 0)
+                    src = getattr(element, 'src', 'no-src')[:50]
+                    print(f"🔍 ALL[{i}] IMG: {width}x{height}, src: {src}..., classes: {classes}")
+                elif element_type == 'canvas':
+                    width = getattr(element, 'width', 0)
+                    height = getattr(element, 'height', 0)
+                    print(f"🔍 ALL[{i}] CANVAS: {width}x{height}, classes: {classes}")
+                else:
+                    print(f"🔍 ALL[{i}] {element_type.upper()}: classes: {classes}")
                 
+                # Apply dramatic filter to EVERYTHING for testing
+                if method == 'restore':
+                    dramatic_filter = 'none'
+                    element.style.border = 'none'  # Remove border
+                else:
+                    dramatic_filter = css_filter + " saturate(3.0) contrast(2.0)"  # Extra dramatic
+                    element.style.border = f"2px solid orange"  # Orange border for all
+                
+                element.style.filter = dramatic_filter
+                element.style.transition = "filter 0.3s ease"
                 elements_processed += 1
-                print(f"✅ Applied filter to video container {i} and {len(children)} children")
+                print(f"✅ Applied SUPER DRAMATIC filter to ALL[{i}] {element_type}: {dramatic_filter}")
+                
             except Exception as e:
-                print(f"Error applying filter to container {i}: {e}")
+                print(f"Error applying filter to ALL[{i}]: {e}")
         
         if elements_processed > 0:
             print(f"🎉 Successfully applied {method.upper()} filter to {elements_processed} elements")
