@@ -218,43 +218,51 @@ def get_current_frame(video_id, frame_index):
         from js import slyApp
         print(f"📥 Getting frame {frame_index} from video {video_id}")
         
-        # Try to get frame using Supervisely API
+        # Get API and images cache from Supervisely app
+        api = None
+        images_cache = {}
+        
         if hasattr(slyApp, 'app') and slyApp.app:
             app = slyApp.app
             if hasattr(app, 'api'):
                 api = app.api
-                try:
-                    # Download frame as RGB numpy array
-                    img_rgb = api.video.frame.download_np(video_id, frame_index)
-                    # Convert to BGR for OpenCV
-                    img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
-                    print(f"✅ Downloaded frame via API: {img_bgr.shape}")
-                    return img_bgr
-                except Exception as api_error:
-                    print(f"API download failed: {api_error}")
+                print("✅ Found Supervisely API")
+            
+            # Try to get existing images cache
+            if hasattr(app, 'imagesCache'):
+                images_cache = app.imagesCache
+                print("✅ Found existing images cache")
+            elif hasattr(slyApp, 'store') and hasattr(slyApp.store.state, 'imagesCache'):
+                images_cache = slyApp.store.state.imagesCache
+                print("✅ Found store images cache")
         
-        # Fallback: Try to get frame from store/cache
-        if hasattr(slyApp, 'store') and slyApp.store:
-            store = slyApp.store
-            try:
-                # Check if frame is cached
-                cache_key = f"{video_id}_{frame_index}"
-                if hasattr(store.state, 'imagesCache') and hasattr(store.state.imagesCache, cache_key):
-                    cached_frame = getattr(store.state.imagesCache, cache_key)
-                    print(f"✅ Found cached frame: {cached_frame.shape}")
-                    return cached_frame
-            except Exception as cache_error:
-                print(f"Cache access failed: {cache_error}")
-        
-        # Final fallback: Create a test image
-        print("📸 Creating test image for processing demonstration...")
-        test_image = create_test_image()
-        return test_image
+        if api:
+            # Use the proper get_frame_np function
+            img_bgr = get_frame_np(api, images_cache, video_id, frame_index)
+            print(f"✅ Downloaded actual frame via API: {img_bgr.shape}")
+            return img_bgr
+        else:
+            print("❌ No API found, falling back to test image")
+            return create_test_image()
         
     except Exception as e:
         print(f"Error getting current frame: {e}")
+        import traceback
+        traceback.print_exc()
         # Return test image as final fallback
         return create_test_image()
+
+def get_frame_np(api, images_cache, video_id, frame_index):
+    """Get frame using Supervisely API with caching"""
+    uniq_key = "{}_{}".format(video_id, frame_index)
+    if uniq_key not in images_cache:
+        img_rgb = api.video.frame.download_np(video_id, frame_index)
+        img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+        images_cache[uniq_key] = img_bgr
+        print(f"📥 Downloaded and cached frame: {img_bgr.shape}")
+    else:
+        print(f"📦 Using cached frame: {uniq_key}")
+    return images_cache[uniq_key]
 
 def create_test_image():
     """Create a test image for processing demonstration"""
