@@ -73,109 +73,104 @@ def get_frame_np_processed(api, images_cache, video_id, frame_index, method='his
     return processed_frame
 
 def main(mode='process', method='hist'):
-  try:
-    # Safer access to Supervisely app components with fallbacks
-    app = None
-    store = None
-    context = None
-    state = None
-    
-  try:
-    app = slyApp.app
-    if hasattr(slyApp, 'store'):
-      store = slyApp.store
-      app = getattr(app, '$children')[0]
-      context = app.context
-      state = app.state
-  except Exception as access_error:
-    print(f"Warning: Limited access to Supervisely components: {access_error}")
-    
-    # Get current image/video ID
-    current_image_id = None
-    if context and hasattr(context, 'imageId'):
-      current_image_id = context.imageId
-    else:
-      # Try alternative access methods
-      try:
-        if app and hasattr(app, 'context'):
-          current_image_id = app.context.imageId
-      except:
-        current_image_id = "unknown"
-    
-    print(f"Main called with mode={mode}, method={method}")
-    print(f"Current imageId: {current_image_id}")
-    
-    # Real video processing approach using Supervisely API + OpenCV
-    print("=== REAL VIDEO PROCESSING ===")
-    
-    # Get processing parameters from UI state (with fallbacks)
-    clip_limit = 40
-    use_lab = False
-    
-    if state:
-      try:
-        if hasattr(state, 'SliderAutoId6MqE3') and method == 'clahe':
-          clip_limit = state.SliderAutoId6MqE3.value
-        if hasattr(state, 'labCheck'):
-          use_lab = state.labCheck
-      except Exception as state_error:
-        print(f"Warning: Could not access UI state: {state_error}")
-    
-    print(f"Processing parameters:")
-    print(f"  Method: {method}")
-    print(f"  Clip limit: {clip_limit}")
-    print(f"  Use LAB color space: {use_lab}")
-    
-    # Extract video/frame information if available
-    video_id = current_image_id
-    frame_index = 0
-    
-    if store:
-      try:
-        current_frame = getattr(store.state.videos.all, str(current_image_id))
+    try:
+        # Safer access to Supervisely app components with fallbacks
+        app = None
+        store = None
+        context = None
+        state = None
         
-        if hasattr(current_frame, 'videoId'):
-          video_id = current_frame.videoId
-        elif hasattr(current_frame, 'id'):
-          video_id = current_frame.id
-          
-        if hasattr(current_frame, 'frameIndex'):
-          frame_index = current_frame.frameIndex
-        elif hasattr(current_frame, 'index'):
-          frame_index = current_frame.index
-          
-        print(f"Processing video_id: {video_id}, frame_index: {frame_index}")
-      
-      except Exception as e:
-          print(f"Note: Using fallback frame info due to: {e}")
-          print(f"Using fallback - video_id: {video_id}, frame_index: {frame_index}")
-    else:
-      print(f"Using minimal processing - video_id: {video_id}, frame_index: {frame_index}")
-    
-    print(f"Processing parameters:")
-    print(f"  Method: {method}")
-    print(f"  Clip limit: {clip_limit}")
-    print(f"  Use LAB color space: {use_lab}")
-    
-    if mode == 'restore':
+        try:
+            app = slyApp.app
+            if hasattr(slyApp, 'store'):
+                store = slyApp.store
+                app = getattr(app, '$children')[0]
+                context = app.context
+                state = app.state
+        except Exception as access_error:
+            print(f"Warning: Limited access to Supervisely components: {access_error}")
+        
+        # Get current image/video ID
+        current_image_id = None
+        if context and hasattr(context, 'imageId'):
+            current_image_id = context.imageId
+        else:
+            # Try alternative access methods
+            try:
+                if app and hasattr(app, 'context'):
+                    current_image_id = app.context.imageId
+            except:
+                current_image_id = "unknown"
+        
+        print(f"Main called with mode={mode}, method={method}")
+        print(f"Current imageId: {current_image_id}")
+        
+        # Real video processing approach using Supervisely API + OpenCV
+        print("=== SIMPLE IMAGE PROCESSING ===")
+        
+        # Get processing parameters from UI state (with fallbacks)
+        clip_limit = 40
+        use_lab = False
+        
+        if state:
+            try:
+                if hasattr(state, 'SliderAutoId6MqE3') and method == 'clahe':
+                    clip_limit = state.SliderAutoId6MqE3.value
+                if hasattr(state, 'labCheck'):
+                    use_lab = state.labCheck
+            except Exception as state_error:
+                print(f"Warning: Could not access UI state: {state_error}")
+        
+        print(f"Processing parameters:")
+        print(f"  Method: {method}")
+        print(f"  Clip limit: {clip_limit}")
+        print(f"  Use LAB color space: {use_lab}")
+        
+        # Extract video/frame information if available
+        video_id = current_image_id
+        frame_index = 0
+        
+        if store:
+            try:
+                current_frame = getattr(store.state.videos.all, str(current_image_id))
+                
+                if hasattr(current_frame, 'videoId'):
+                    video_id = current_frame.videoId
+                elif hasattr(current_frame, 'id'):
+                    video_id = current_frame.id
+                    
+                if hasattr(current_frame, 'frameIndex'):
+                    frame_index = current_frame.frameIndex
+                elif hasattr(current_frame, 'index'):
+                    frame_index = current_frame.index
+                    
+                print(f"Processing video_id: {video_id}, frame_index: {frame_index}")
+            
+            except Exception as e:
+                print(f"Note: Using fallback frame info due to: {e}")
+                print(f"Using fallback - video_id: {video_id}, frame_index: {frame_index}")
+        else:
+            print(f"Using minimal processing - video_id: {video_id}, frame_index: {frame_index}")
+        
+        if mode == 'restore':
             print("🔄 Restoring original image")
             restore_original_image()
-      return
-    
+            return
+        
         # SIMPLE IMAGE PROCESSING APPROACH
-        print("🎯 Processing current frame and displaying on canvas:")
-    print(f"🔧 Processing method: {method.upper()}")
-    if method == 'clahe':
-      print(f"⚙️ CLAHE clip limit: {clip_limit}")
-    print(f"🎨 Color space: {'LAB' if use_lab else 'Grayscale → BGR'}")
-    
-        # Process current frame and display on canvas
+        print("🎯 Processing current frame and displaying in app:")
+        print(f"🔧 Processing method: {method.upper()}")
+        if method == 'clahe':
+            print(f"⚙️ CLAHE clip limit: {clip_limit}")
+        print(f"🎨 Color space: {'LAB' if use_lab else 'Grayscale → BGR'}")
+        
+        # Process current frame and display in app interface
         process_and_display_image(video_id, frame_index, method, clip_limit, use_lab)
 
-  except Exception as e:
-    print(f"Error in main function: {str(e)}")
-    import traceback
-    traceback.print_exc()
+    except Exception as e:
+        print(f"Error in main function: {str(e)}")
+        import traceback
+        traceback.print_exc()
 
 def process_and_display_image(video_id, frame_index, method, clip_limit, use_lab):
     """Download current frame, process it with OpenCV, and display on canvas"""
