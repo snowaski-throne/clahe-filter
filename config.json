@@ -12,7 +12,5 @@
     "min_instance_version": "6.12.13",
     "integrated_into": ["image_annotation_tool", "video_annotation_tool"],
     "gui_folder_path": "src",
-    "poster": "https://github.com/user-attachments/assets/ddb77656-8e0c-4b76-b2bf-dc082783eb7b",
-    "icon": "https://github.com/user-attachments/assets/a4c681c2-bd3b-4d86-b1da-efa8f5859a16",
     "icon_cover": true
-  }
+}
