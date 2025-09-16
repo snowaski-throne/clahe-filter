@@ -84,8 +84,71 @@ def main(mode='process', method='hist'):
         print(f"Error checking {path_name}: {e}")
     
     if img_cvs is None:
-      print("ERROR: Could not find video frame canvas in any location")
-      return
+      print("=== COMPREHENSIVE OBJECT EXPLORATION ===")
+      
+      # Explore what's actually available in store.state
+      try:
+        if hasattr(store.state, 'object_keys'):
+          store_keys = list(store.state.object_keys())
+          print(f"store.state keys: {store_keys}")
+        
+        # Check if videos has other properties
+        if hasattr(store.state, 'videos'):
+          videos = store.state.videos
+          if hasattr(videos, 'object_keys'):
+            video_keys = list(videos.object_keys())
+            print(f"store.state.videos keys: {video_keys}")
+        
+        # Explore context object
+        if hasattr(context, 'object_keys'):
+          context_keys = list(context.object_keys())
+          print(f"context keys: {context_keys}")
+      except Exception as e:
+        print(f"Error exploring objects: {e}")
+      
+      print("=== TRYING DOM-BASED CANVAS ACCESS ===")
+      # Try to find video canvas in the DOM
+      try:
+        from js import document
+        
+        # Look for common video/canvas elements
+        canvas_selectors = [
+          'canvas',
+          'video',
+          '.video-canvas',
+          '.frame-canvas', 
+          '.annotation-canvas',
+          '[data-video-frame]',
+          '.sly-video-canvas',
+          '.image-canvas'
+        ]
+        
+        for selector in canvas_selectors:
+          try:
+            elements = document.querySelectorAll(selector)
+            print(f"Found {len(elements)} elements for '{selector}'")
+            
+            for i, element in enumerate(elements):
+              if hasattr(element, 'width') and hasattr(element, 'height'):
+                print(f"  Element {i}: {element.tagName} {element.width}x{element.height}")
+                if element.width > 0 and element.height > 0:
+                  # This looks like a valid canvas
+                  img_cvs = element
+                  print(f"    -> Using DOM canvas: {selector}")
+                  break
+            
+            if img_cvs is not None:
+              break
+              
+          except Exception as e:
+            print(f"Error with selector '{selector}': {e}")
+            
+      except Exception as e:
+        print(f"Error accessing DOM: {e}")
+      
+      if img_cvs is None:
+        print("ERROR: Could not find video frame canvas anywhere - DOM or API")
+        return
     
     print(f"SUCCESS: Found canvas with dimensions {img_cvs.width}x{img_cvs.height}")
 
