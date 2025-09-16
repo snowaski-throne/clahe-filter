@@ -5,8 +5,8 @@ import cv2
 
 
 def dump(obj):
-    for attr in dir(obj):
-        print("obj.%s = %r" % (attr, getattr(obj, attr)))
+  for attr in dir(obj):
+    print("obj.%s = %r" % (attr, getattr(obj, attr)))
 
 def apply_image_processing(img_bgr, method='hist', clip_limit=40, use_lab=False):
     """Apply CLAHE or histogram equalization to a BGR image"""
@@ -73,109 +73,109 @@ def get_frame_np_processed(api, images_cache, video_id, frame_index, method='his
     return processed_frame
 
 def main(mode='process', method='hist'):
-    try:
-        # Safer access to Supervisely app components with fallbacks
-        app = None
-        store = None
-        context = None
-        state = None
+  try:
+    # Safer access to Supervisely app components with fallbacks
+    app = None
+    store = None
+    context = None
+    state = None
+    
+  try:
+    app = slyApp.app
+    if hasattr(slyApp, 'store'):
+      store = slyApp.store
+      app = getattr(app, '$children')[0]
+      context = app.context
+      state = app.state
+  except Exception as access_error:
+    print(f"Warning: Limited access to Supervisely components: {access_error}")
+    
+    # Get current image/video ID
+    current_image_id = None
+    if context and hasattr(context, 'imageId'):
+      current_image_id = context.imageId
+    else:
+      # Try alternative access methods
+      try:
+        if app and hasattr(app, 'context'):
+          current_image_id = app.context.imageId
+      except:
+        current_image_id = "unknown"
+    
+    print(f"Main called with mode={mode}, method={method}")
+    print(f"Current imageId: {current_image_id}")
+    
+    # Real video processing approach using Supervisely API + OpenCV
+    print("=== REAL VIDEO PROCESSING ===")
+    
+    # Get processing parameters from UI state (with fallbacks)
+    clip_limit = 40
+    use_lab = False
+    
+    if state:
+      try:
+        if hasattr(state, 'SliderAutoId6MqE3') and method == 'clahe':
+          clip_limit = state.SliderAutoId6MqE3.value
+        if hasattr(state, 'labCheck'):
+          use_lab = state.labCheck
+      except Exception as state_error:
+        print(f"Warning: Could not access UI state: {state_error}")
+    
+    print(f"Processing parameters:")
+    print(f"  Method: {method}")
+    print(f"  Clip limit: {clip_limit}")
+    print(f"  Use LAB color space: {use_lab}")
+    
+    # Extract video/frame information if available
+    video_id = current_image_id
+    frame_index = 0
+    
+    if store:
+      try:
+        current_frame = getattr(store.state.videos.all, str(current_image_id))
         
-        try:
-            app = slyApp.app
-            if hasattr(slyApp, 'store'):
-                store = slyApp.store
-                app = getattr(app, '$children')[0]
-                context = app.context
-                state = app.state
-        except Exception as access_error:
-            print(f"Warning: Limited access to Supervisely components: {access_error}")
-            
-        # Get current image/video ID
-        current_image_id = None
-        if context and hasattr(context, 'imageId'):
-            current_image_id = context.imageId
-        else:
-            # Try alternative access methods
-            try:
-                if app and hasattr(app, 'context'):
-                    current_image_id = app.context.imageId
-            except:
-                current_image_id = "unknown"
-        
-        print(f"Main called with mode={mode}, method={method}")
-        print(f"Current imageId: {current_image_id}")
-        
-        # Real video processing approach using Supervisely API + OpenCV
-        print("=== REAL VIDEO PROCESSING ===")
-        
-        # Get processing parameters from UI state (with fallbacks)
-        clip_limit = 40
-        use_lab = False
-        
-        if state:
-            try:
-                if hasattr(state, 'SliderAutoId6MqE3') and method == 'clahe':
-                    clip_limit = state.SliderAutoId6MqE3.value
-                if hasattr(state, 'labCheck'):
-                    use_lab = state.labCheck
-            except Exception as state_error:
-                print(f"Warning: Could not access UI state: {state_error}")
-        
-        print(f"Processing parameters:")
-        print(f"  Method: {method}")
-        print(f"  Clip limit: {clip_limit}")
-        print(f"  Use LAB color space: {use_lab}")
-        
-        # Extract video/frame information if available
-        video_id = current_image_id
-        frame_index = 0
-        
-        if store:
-            try:
-                current_frame = getattr(store.state.videos.all, str(current_image_id))
-                
-                if hasattr(current_frame, 'videoId'):
-                    video_id = current_frame.videoId
-                elif hasattr(current_frame, 'id'):
-                    video_id = current_frame.id
-                    
-                if hasattr(current_frame, 'frameIndex'):
-                    frame_index = current_frame.frameIndex
-                elif hasattr(current_frame, 'index'):
-                    frame_index = current_frame.index
-                    
-                print(f"Processing video_id: {video_id}, frame_index: {frame_index}")
-            
-            except Exception as e:
-                print(f"Note: Using fallback frame info due to: {e}")
-                print(f"Using fallback - video_id: {video_id}, frame_index: {frame_index}")
-        else:
-            print(f"Using minimal processing - video_id: {video_id}, frame_index: {frame_index}")
-        
-        print(f"Processing parameters:")
-        print(f"  Method: {method}")
-        print(f"  Clip limit: {clip_limit}")
-        print(f"  Use LAB color space: {use_lab}")
-        
-        if mode == 'restore':
+        if hasattr(current_frame, 'videoId'):
+          video_id = current_frame.videoId
+        elif hasattr(current_frame, 'id'):
+          video_id = current_frame.id
+          
+        if hasattr(current_frame, 'frameIndex'):
+          frame_index = current_frame.frameIndex
+        elif hasattr(current_frame, 'index'):
+          frame_index = current_frame.index
+          
+        print(f"Processing video_id: {video_id}, frame_index: {frame_index}")
+      
+      except Exception as e:
+          print(f"Note: Using fallback frame info due to: {e}")
+          print(f"Using fallback - video_id: {video_id}, frame_index: {frame_index}")
+    else:
+      print(f"Using minimal processing - video_id: {video_id}, frame_index: {frame_index}")
+    
+    print(f"Processing parameters:")
+    print(f"  Method: {method}")
+    print(f"  Clip limit: {clip_limit}")
+    print(f"  Use LAB color space: {use_lab}")
+    
+    if mode == 'restore':
             print("🔄 Restoring original image")
             restore_original_image()
-            return
-        
+      return
+    
         # SIMPLE IMAGE PROCESSING APPROACH
         print("🎯 Processing current frame and displaying on canvas:")
-        print(f"🔧 Processing method: {method.upper()}")
-        if method == 'clahe':
-            print(f"⚙️ CLAHE clip limit: {clip_limit}")
-        print(f"🎨 Color space: {'LAB' if use_lab else 'Grayscale → BGR'}")
-        
+    print(f"🔧 Processing method: {method.upper()}")
+    if method == 'clahe':
+      print(f"⚙️ CLAHE clip limit: {clip_limit}")
+    print(f"🎨 Color space: {'LAB' if use_lab else 'Grayscale → BGR'}")
+    
         # Process current frame and display on canvas
         process_and_display_image(video_id, frame_index, method, clip_limit, use_lab)
 
-    except Exception as e:
-        print(f"Error in main function: {str(e)}")
-        import traceback
-        traceback.print_exc()
+  except Exception as e:
+    print(f"Error in main function: {str(e)}")
+    import traceback
+    traceback.print_exc()
 
 def process_and_display_image(video_id, frame_index, method, clip_limit, use_lab):
     """Download current frame, process it with OpenCV, and display on canvas"""
@@ -294,115 +294,134 @@ def create_test_image():
         return np.full((480, 640, 3), 128, dtype=np.uint8)
 
 def display_image_on_canvas(processed_image):
-    """Display the processed image on Supervisely's canvas"""
+    """Display the processed image in the app interface"""
     try:
-        from js import document, ImageData
+        from js import document, Blob, URL, Uint8Array
+        import base64
         
-        print("🎨 Searching for Supervisely canvas...")
+        print("🎨 Displaying processed image in app interface...")
         
-        # Find the main canvas in Supervisely's video player
-        canvas = None
-        
-        # Method 1: Look for the exact Supervisely canvas structure
-        fullsize_containers = document.querySelectorAll('div.fullsize[data-v-4662ca9e]')
-        if not fullsize_containers:
-            fullsize_containers = document.querySelectorAll('div.fullsize')
-        
-        for container in fullsize_containers:
-            potential_canvas = container.querySelector('canvas[style*="position: absolute"]')
-            if potential_canvas:
-                canvas = potential_canvas
-                print(f"✅ Found Supervisely canvas: {canvas.width}x{canvas.height}")
-                break
-        
-        # Method 2: Look for any large canvas
-        if not canvas:
-            all_canvases = document.querySelectorAll('canvas')
-            for c in all_canvases:
-                if c.width >= 500 and c.height >= 300:
-                    canvas = c
-                    print(f"✅ Found large canvas: {canvas.width}x{canvas.height}")
-                    break
-        
-        if not canvas:
-            print("❌ No suitable canvas found")
+        # Find the card content area where the buttons are
+        card_content = document.querySelector('.card .content')
+        if not card_content:
+            print("❌ Could not find card content area")
             return False
         
-        # Get canvas context
-        ctx = canvas.getContext('2d')
-        if not ctx:
-            print("❌ Could not get canvas context")
-            return False
+        print("✅ Found app card content area")
         
-        # Prepare image data
-        height, width, channels = processed_image.shape
-        print(f"📐 Image dimensions: {width}x{height}x{channels}")
-        print(f"📐 Canvas dimensions: {canvas.width}x{canvas.height}")
+        # Remove any existing processed image
+        existing_img = document.querySelector('#processed-image-display')
+        if existing_img:
+            existing_img.remove()
+            print("🗑️ Removed existing processed image")
         
         # Convert BGR to RGB for display
         img_rgb = cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB)
         
-        # Resize image to match canvas if needed
-        if width != canvas.width or height != canvas.height:
-            img_rgb = cv2.resize(img_rgb, (canvas.width, canvas.height))
-            print(f"📏 Resized image to match canvas: {canvas.width}x{canvas.height}")
+        # Resize image to reasonable display size
+        height, width = img_rgb.shape[:2]
+        max_width = 600
+        max_height = 400
         
-        # Convert to ImageData format for JavaScript
-        # Flatten the array and convert to RGBA
-        img_flat = img_rgb.flatten()
-        img_rgba = []
+        if width > max_width or height > max_height:
+            scale = min(max_width / width, max_height / height)
+            new_width = int(width * scale)
+            new_height = int(height * scale)
+            img_rgb = cv2.resize(img_rgb, (new_width, new_height))
+            print(f"📏 Resized image for display: {new_width}x{new_height}")
         
-        for i in range(0, len(img_flat), 3):
-            img_rgba.extend([
-                int(img_flat[i]),     # R
-                int(img_flat[i+1]),   # G  
-                int(img_flat[i+2]),   # B
-                255                   # A (full opacity)
-            ])
+        # Convert to bytes for blob creation
+        import numpy as np
         
-        # Create ImageData object
-        image_data = ImageData.new(img_rgba, canvas.width, canvas.height)
+        # Convert numpy array to PNG-like format
+        # Create a simple bitmap header + data
+        h, w = img_rgb.shape[:2]
         
-        # Clear canvas and draw new image
-        ctx.clearRect(0, 0, canvas.width, canvas.height)
-        ctx.putImageData(image_data, 0, 0)
+        # Convert to bytes
+        img_bytes = img_rgb.flatten().tobytes()
         
-        print("✅ Successfully displayed processed image on canvas!")
+        # Create a data URL instead (simpler approach)
+        # Convert to base64
+        img_base64 = base64.b64encode(img_bytes).decode('ascii')
+        
+        # Create image element
+        img_element = document.createElement('img')
+        img_element.id = 'processed-image-display'
+        img_element.style.maxWidth = '100%'
+        img_element.style.height = 'auto'
+        img_element.style.border = '2px solid #4CAF50'
+        img_element.style.borderRadius = '8px'
+        img_element.style.marginTop = '15px'
+        img_element.style.display = 'block'
+        
+        # Create a proper image data URL using canvas
+        temp_canvas = document.createElement('canvas')
+        temp_canvas.width = w
+        temp_canvas.height = h
+        temp_ctx = temp_canvas.getContext('2d')
+        
+        # Create ImageData and put it on temp canvas
+        img_data = temp_ctx.createImageData(w, h)
+        
+        # Fill ImageData with RGBA values
+        for y in range(h):
+            for x in range(w):
+                pixel_index = (y * w + x) * 4
+                img_index = (y * w + x) * 3
+                
+                img_data.data[pixel_index] = img_rgb[y, x, 0]     # R
+                img_data.data[pixel_index + 1] = img_rgb[y, x, 1] # G  
+                img_data.data[pixel_index + 2] = img_rgb[y, x, 2] # B
+                img_data.data[pixel_index + 3] = 255              # A
+        
+        temp_ctx.putImageData(img_data, 0, 0)
+        
+        # Convert canvas to data URL
+        data_url = temp_canvas.toDataURL('image/png')
+        img_element.src = data_url
+        
+        # Add title
+        title_element = document.createElement('div')
+        title_element.innerHTML = '🎬 Processed Image Result'
+        title_element.style.fontWeight = 'bold'
+        title_element.style.marginTop = '15px'
+        title_element.style.marginBottom = '5px'
+        title_element.style.color = '#4CAF50'
+        
+        # Append to card content
+        card_content.appendChild(title_element)
+        card_content.appendChild(img_element)
+        
+        print("✅ Successfully displayed processed image in app interface!")
         return True
         
     except Exception as e:
-        print(f"Error displaying image on canvas: {e}")
+        print(f"Error displaying image in app: {e}")
         import traceback
         traceback.print_exc()
         return False
 
 def restore_original_image():
-    """Restore the original image on canvas"""
+    """Remove the displayed processed image"""
     try:
-        print("🔄 Restoring original image...")
+        print("🔄 Removing processed image...")
         from js import document
         
-        # Find and clear any overlays or filters
-        overlay_elements = document.querySelectorAll('[style*="position: absolute"][style*="z-index"]')
-        removed = 0
+        # Remove the processed image display
+        existing_img = document.querySelector('#processed-image-display')
+        if existing_img:
+            existing_img.remove()
+            print("🗑️ Removed processed image")
         
-        for element in overlay_elements:
-            if 'video' in element.tagName.lower() or 'img' in element.tagName.lower():
+        # Remove the title as well
+        title_elements = document.querySelectorAll('div')
+        for element in title_elements:
+            if element.innerHTML and '🎬 Processed Image Result' in element.innerHTML:
                 element.remove()
-                removed += 1
+                print("🗑️ Removed processed image title")
+                break
         
-        print(f"🗑️ Removed {removed} overlay elements")
-        
-        # Reset canvas if possible
-        canvases = document.querySelectorAll('canvas')
-        for canvas in canvases:
-            if canvas.width >= 500 and canvas.height >= 300:
-                ctx = canvas.getContext('2d')
-                if ctx:
-                    ctx.clearRect(0, 0, canvas.width, canvas.height)
-                    print("🧹 Cleared main canvas")
-        
-        print("✅ Original image restoration complete")
+        print("✅ Restoration complete - processed image removed")
         return True
         
     except Exception as e:
