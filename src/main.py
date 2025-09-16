@@ -213,36 +213,78 @@ def process_and_display_image(video_id, frame_index, method, clip_limit, use_lab
         return False
 
 def get_current_frame(video_id, frame_index):
-    """Get the current frame from Supervisely as a numpy array"""
+    """Get the current frame from Supervisely using proper app context"""
     try:
-        from js import slyApp
         print(f"📥 Getting frame {frame_index} from video {video_id}")
         
-        # Get API and images cache from Supervisely app
+        # Try to access the Supervisely app context directly
         api = None
-        images_cache = {}
+        current_video_id = video_id
+        current_frame = frame_index
         
-        if hasattr(slyApp, 'app') and slyApp.app:
-            app = slyApp.app
-            if hasattr(app, 'api'):
-                api = app.api
-                print("✅ Found Supervisely API")
+        # Method 1: Try to access via Supervisely's global context (proper way)
+        try:
+            # Try to import supervisely if available in Pyodide environment
+            import supervisely as sly
+            print("✅ Found supervisely module")
             
-            # Try to get existing images cache
-            if hasattr(app, 'imagesCache'):
-                images_cache = app.imagesCache
-                print("✅ Found existing images cache")
-            elif hasattr(slyApp, 'store') and hasattr(slyApp.store.state, 'imagesCache'):
-                images_cache = slyApp.store.state.imagesCache
-                print("✅ Found store images cache")
+            # Try to access the current app context
+            try:
+                # In Supervisely apps, the API is usually available through the app instance
+                from js import window
+                if hasattr(window, 'g'):
+                    # Access global context like in your example
+                    g = window.g
+                    if hasattr(g, 'api') and g.api:
+                        api = g.api
+                        print("✅ Found API via window.g.api")
+                        
+                        # Also get current context
+                        if hasattr(g, 'video_id') and g.video_id:
+                            current_video_id = g.video_id
+                            print(f"✅ Using video_id from context: {current_video_id}")
+                        if hasattr(g, 'frame') and g.frame is not None:
+                            current_frame = g.frame
+                            print(f"✅ Using frame from context: {current_frame}")
+                            
+            except Exception as context_error:
+                print(f"Context access failed: {context_error}")
+                
+        except ImportError:
+            print("📝 supervisely not available in Pyodide environment")
+        
+        # Method 2: Try the old pattern as fallback
+        if not api:
+            from js import slyApp
+            print("🔍 Trying slyApp fallback pattern...")
+            
+            if hasattr(slyApp, 'app') and slyApp.app:
+                app = slyApp.app
+                
+                # Check for global state/context
+                if hasattr(app, 'globalState') and hasattr(app.globalState, 'api'):
+                    api = app.globalState.api
+                    print("✅ Found API via app.globalState.api")
+                elif hasattr(app, '$store') and hasattr(app.$store.state, 'api'):
+                    api = app.$store.state.api
+                    print("✅ Found API via app.$store.state.api")
+                elif hasattr(app, '$children') and len(getattr(app, '$children', [])) > 0:
+                    main_component = getattr(app, '$children')[0]
+                    if hasattr(main_component, 'api'):
+                        api = main_component.api
+                        print("✅ Found API via app.$children[0].api")
+        
+        # Get or create images cache
+        images_cache = {}
         
         if api:
             # Use the proper get_frame_np function
-            img_bgr = get_frame_np(api, images_cache, video_id, frame_index)
+            img_bgr = get_frame_np(api, images_cache, current_video_id, current_frame)
             print(f"✅ Downloaded actual frame via API: {img_bgr.shape}")
             return img_bgr
         else:
             print("❌ No API found, falling back to test image")
+            print("💡 Make sure you're running this within a Supervisely video annotation context")
             return create_test_image()
         
     except Exception as e:
