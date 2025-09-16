@@ -169,8 +169,12 @@ def main(mode='process', method='hist'):
       print(f"⚙️ CLAHE clip limit: {clip_limit}")
     print(f"🎨 Color space: {'LAB' if use_lab else 'Grayscale → BGR'}")
     
-    # Apply the filters
+    # Apply the filters with delayed search for dynamic content
     apply_css_filters_to_display(method, clip_limit, use_lab)
+    
+    # Also try delayed search in case video loads after our script
+    print("🔄 Scheduling delayed search for dynamic content...")
+    schedule_delayed_search(method, clip_limit, use_lab)
 
   except Exception as e:
     print(f"Error in main function: {str(e)}")
@@ -182,25 +186,47 @@ def apply_css_filters_to_display(method, clip_limit, use_lab):
     from js import document
     
     try:
-        # Find all potential image/video display elements with comprehensive search
+        # SUPER COMPREHENSIVE search for Supervisely's video implementation
+        print("🔍 Starting comprehensive DOM search...")
+        
+        # Standard elements
         img_elements = document.querySelectorAll('img')
         canvas_elements = document.querySelectorAll('canvas')
         video_elements = document.querySelectorAll('video')
-        
-        # Also look for elements that might contain video frames
-        video_containers = document.querySelectorAll('[class*="video"], [class*="player"], [class*="sly"]')
-        
-        # Additional comprehensive search for any media elements
-        all_divs = document.querySelectorAll('div[style*="background-image"]')
         iframe_elements = document.querySelectorAll('iframe')
         
-        # Try to find the largest image/media element (likely the main frame)
-        all_media_elements = document.querySelectorAll('img, canvas, video, iframe, [style*="background-image"]')
+        # Supervisely-specific searches
+        sly_elements = document.querySelectorAll('[class*="sly"]')
+        video_containers = document.querySelectorAll('[class*="video"], [class*="player"], [class*="frame"]')
+        image_containers = document.querySelectorAll('[class*="image"], [class*="img"]')
         
-        print(f"🖼️ Found {len(img_elements)} img, {len(canvas_elements)} canvas, {len(video_elements)} video elements")
-        print(f"🖼️ Found {len(video_containers)} video container elements")
-        print(f"🖼️ Found {len(all_divs)} background-image divs, {len(iframe_elements)} iframes")
-        print(f"🖼️ Found {len(all_media_elements)} total media elements")
+        # Look for elements that might have video content
+        all_divs = document.querySelectorAll('div')
+        all_spans = document.querySelectorAll('span')
+        styled_elements = document.querySelectorAll('[style*="background"]')
+        
+        # WebGL and advanced rendering
+        webgl_canvases = document.querySelectorAll('canvas[data-engine], canvas[data-webgl]')
+        
+        # Look for large elements that might contain video
+        large_elements = []
+        for div in all_divs:
+            try:
+                rect = div.getBoundingClientRect()
+                if rect.width > 200 and rect.height > 200:
+                    large_elements.append(div)
+            except:
+                pass
+        
+        # Try to find the largest image/media element (likely the main frame)
+        all_media_elements = document.querySelectorAll('img, canvas, video, iframe, div, span')
+        
+        print(f"🔍 Advanced search results:")
+        print(f"   Standard: {len(img_elements)} img, {len(canvas_elements)} canvas, {len(video_elements)} video, {len(iframe_elements)} iframe")
+        print(f"   Supervisely: {len(sly_elements)} sly-elements, {len(video_containers)} video containers, {len(image_containers)} image containers")
+        print(f"   Layout: {len(all_divs)} divs, {len(all_spans)} spans, {len(styled_elements)} styled elements")
+        print(f"   Advanced: {len(webgl_canvases)} WebGL canvases, {len(large_elements)} large elements")
+        print(f"   Total: {len(all_media_elements)} elements to examine")
         
         # Generate CSS filter based on method
         css_filter = generate_css_filter(method, clip_limit, use_lab)
@@ -208,40 +234,108 @@ def apply_css_filters_to_display(method, clip_limit, use_lab):
         
         elements_processed = 0
         
-        # AGGRESSIVE APPROACH: Apply to ALL media elements to find the right one
-        print("🚀 AGGRESSIVE MODE: Applying to ALL media elements")
-        for i, element in enumerate(all_media_elements):
+        # FOCUS ON LARGE ELEMENTS FIRST - most likely to contain video
+        print("🎯 PRIORITY SEARCH: Focusing on large elements that might contain video")
+        for i, element in enumerate(large_elements):
             try:
                 element_type = element.tagName.lower()
                 classes = getattr(element, 'className', 'no-class')
+                rect = element.getBoundingClientRect()
                 
-                if element_type == 'img':
-                    width = getattr(element, 'naturalWidth', 0)
-                    height = getattr(element, 'naturalHeight', 0)
-                    src = getattr(element, 'src', 'no-src')[:50]
-                    print(f"🔍 ALL[{i}] IMG: {width}x{height}, src: {src}..., classes: {classes}")
-                elif element_type == 'canvas':
-                    width = getattr(element, 'width', 0)
-                    height = getattr(element, 'height', 0)
-                    print(f"🔍 ALL[{i}] CANVAS: {width}x{height}, classes: {classes}")
-                else:
-                    print(f"🔍 ALL[{i}] {element_type.upper()}: classes: {classes}")
+                print(f"🔍 LARGE[{i}] {element_type.upper()}: {rect.width:.0f}x{rect.height:.0f}, classes: {classes}")
                 
-                # Apply dramatic filter to EVERYTHING for testing
+                # Apply dramatic filter to large elements
                 if method == 'restore':
                     dramatic_filter = 'none'
-                    element.style.border = 'none'  # Remove border
+                    element.style.border = 'none'
                 else:
-                    dramatic_filter = css_filter + " saturate(3.0) contrast(2.0)"  # Extra dramatic
-                    element.style.border = f"2px solid orange"  # Orange border for all
+                    dramatic_filter = css_filter + " saturate(4.0) contrast(3.0)"  # EXTRA dramatic for large elements
+                    element.style.border = f"4px solid red"  # RED border for large elements
                 
                 element.style.filter = dramatic_filter
                 element.style.transition = "filter 0.3s ease"
                 elements_processed += 1
-                print(f"✅ Applied SUPER DRAMATIC filter to ALL[{i}] {element_type}: {dramatic_filter}")
+                print(f"✅ Applied EXTRA DRAMATIC filter to LARGE[{i}] {element_type}: {dramatic_filter}")
                 
             except Exception as e:
-                print(f"Error applying filter to ALL[{i}]: {e}")
+                print(f"Error applying filter to LARGE[{i}]: {e}")
+        
+        # Also apply to Supervisely-specific elements
+        print("🎯 SUPERVISELY SEARCH: Targeting sly-specific elements")
+        for i, element in enumerate(sly_elements):
+            try:
+                element_type = element.tagName.lower()
+                classes = getattr(element, 'className', 'no-class')
+                
+                print(f"🔍 SLY[{i}] {element_type.upper()}: classes: {classes}")
+                
+                # Apply dramatic filter to sly elements and their children
+                if method == 'restore':
+                    dramatic_filter = 'none'
+                    element.style.border = 'none'
+                else:
+                    dramatic_filter = css_filter + " saturate(3.5) contrast(2.5)"
+                    element.style.border = f"3px solid purple"  # PURPLE border for sly elements
+                
+                element.style.filter = dramatic_filter
+                element.style.transition = "filter 0.3s ease"
+                
+                # Also apply to ALL children of sly elements
+                children = element.querySelectorAll('*')
+                for child in children:
+                    child.style.filter = dramatic_filter
+                    child.style.border = "1px solid purple"
+                
+                elements_processed += 1
+                print(f"✅ Applied DRAMATIC filter to SLY[{i}] {element_type} and {len(children)} children: {dramatic_filter}")
+                
+            except Exception as e:
+                print(f"Error applying filter to SLY[{i}]: {e}")
+        
+        # COMPREHENSIVE SEARCH: Apply to key element types  
+        print("🚀 COMPREHENSIVE MODE: Checking all potential video containers")
+        key_selectors = [
+            ('img', img_elements),
+            ('canvas', canvas_elements), 
+            ('video', video_elements),
+            ('iframe', iframe_elements),
+            ('video-container', video_containers),
+            ('image-container', image_containers)
+        ]
+        
+        for selector_name, elements in key_selectors:
+            for i, element in enumerate(elements):
+                try:
+                    element_type = element.tagName.lower()
+                    classes = getattr(element, 'className', 'no-class')
+                    
+                    if element_type == 'img':
+                        width = getattr(element, 'naturalWidth', 0)
+                        height = getattr(element, 'naturalHeight', 0)
+                        src = getattr(element, 'src', 'no-src')[:50]
+                        print(f"🔍 {selector_name.upper()}[{i}] IMG: {width}x{height}, src: {src}..., classes: {classes}")
+                    elif element_type == 'canvas':
+                        width = getattr(element, 'width', 0)
+                        height = getattr(element, 'height', 0)
+                        print(f"🔍 {selector_name.upper()}[{i}] CANVAS: {width}x{height}, classes: {classes}")
+                    else:
+                        print(f"🔍 {selector_name.upper()}[{i}] {element_type.upper()}: classes: {classes}")
+                    
+                    # Apply dramatic filter
+                    if method == 'restore':
+                        dramatic_filter = 'none'
+                        element.style.border = 'none'
+                    else:
+                        dramatic_filter = css_filter + " saturate(3.0) contrast(2.0)"
+                        element.style.border = f"2px solid orange"
+                    
+                    element.style.filter = dramatic_filter
+                    element.style.transition = "filter 0.3s ease"
+                    elements_processed += 1
+                    print(f"✅ Applied filter to {selector_name.upper()}[{i}] {element_type}: {dramatic_filter}")
+                    
+                except Exception as e:
+                    print(f"Error applying filter to {selector_name}[{i}]: {e}")
         
         if elements_processed > 0:
             print(f"🎉 Successfully applied {method.upper()} filter to {elements_processed} elements")
@@ -292,5 +386,52 @@ def generate_css_filter(method, clip_limit, use_lab):
     except Exception as e:
         print(f"Error generating CSS filter: {e}")
         return 'none'
+
+def schedule_delayed_search(method, clip_limit, use_lab):
+    """Schedule delayed searches for dynamically loaded content"""
+    from js import setTimeout, document
+    
+    def delayed_search_callback():
+        try:
+            print("⏰ DELAYED SEARCH: Looking for dynamically loaded content...")
+            
+            # Re-run comprehensive search after delay
+            apply_css_filters_to_display(method, clip_limit, use_lab)
+            
+            # Also try searching for elements that might have appeared
+            print("🔍 Checking for new elements that loaded after initial search...")
+            
+            # Look for elements with specific patterns that might indicate video
+            video_indicators = document.querySelectorAll('[src*="mp4"], [src*="webm"], [src*="video"], [data-video], [class*="frame"]')
+            supervisely_video = document.querySelectorAll('[class*="sly-video"], [class*="video-player"], [class*="image-viewer"]')
+            
+            if len(video_indicators) > 0:
+                print(f"🎯 Found {len(video_indicators)} video indicator elements!")
+                for i, elem in enumerate(video_indicators):
+                    try:
+                        elem.style.filter = generate_css_filter(method, clip_limit, use_lab) + " saturate(5.0) contrast(4.0)"
+                        elem.style.border = "5px solid green"  # GREEN for video indicators
+                        print(f"✅ Applied MEGA DRAMATIC filter to video indicator {i}")
+                    except Exception as e:
+                        print(f"Error applying to video indicator {i}: {e}")
+            
+            if len(supervisely_video) > 0:
+                print(f"🎯 Found {len(supervisely_video)} Supervisely video elements!")
+                for i, elem in enumerate(supervisely_video):
+                    try:
+                        elem.style.filter = generate_css_filter(method, clip_limit, use_lab) + " saturate(5.0) contrast(4.0)"
+                        elem.style.border = "5px solid cyan"  # CYAN for supervisely video
+                        print(f"✅ Applied MEGA DRAMATIC filter to supervisely video {i}")
+                    except Exception as e:
+                        print(f"Error applying to supervisely video {i}: {e}")
+            
+        except Exception as e:
+            print(f"Error in delayed search: {e}")
+    
+    # Schedule searches at different intervals
+    print("⏰ Scheduling delayed searches at 500ms, 1s, and 2s...")
+    setTimeout(delayed_search_callback, 500)   # 0.5 seconds
+    setTimeout(delayed_search_callback, 1000)  # 1 second  
+    setTimeout(delayed_search_callback, 2000)  # 2 seconds
 
 main
