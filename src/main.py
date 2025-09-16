@@ -265,9 +265,11 @@ def get_current_frame(video_id, frame_index):
                 if hasattr(app, 'globalState') and hasattr(app.globalState, 'api'):
                     api = app.globalState.api
                     print("✅ Found API via app.globalState.api")
-                elif hasattr(app, '$store') and hasattr(app.$store.state, 'api'):
-                    api = app.$store.state.api
-                    print("✅ Found API via app.$store.state.api")
+                elif hasattr(app, '$store'):
+                    store = getattr(app, '$store')
+                    if hasattr(store, 'state') and hasattr(store.state, 'api'):
+                        api = store.state.api
+                        print("✅ Found API via app.$store.state.api")
                 elif hasattr(app, '$children') and len(getattr(app, '$children', [])) > 0:
                     main_component = getattr(app, '$children')[0]
                     if hasattr(main_component, 'api'):
