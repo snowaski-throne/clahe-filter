@@ -57,37 +57,46 @@ def main(mode='process', method='hist'):
     try:
       cur_img = getattr(store.state.videos.all, str(context.imageId))
       print(f"Found video frame for imageId {context.imageId}")
-      print(f"cur_img has sources: {hasattr(cur_img, 'sources')}")
-      print(f"cur_img.sources length: {len(cur_img.sources) if hasattr(cur_img, 'sources') else 'No sources'}")
-      
-      img_src = cur_img.sources[0]
-      print(f"img_src has imageData: {hasattr(img_src, 'imageData')}")
-      
-      img_cvs = img_src.imageData
-      print(f"Canvas type: {type(img_cvs)}")
-      print(f"Canvas width: {img_cvs.width}, height: {img_cvs.height}")
-      
-      # Debug video frame object properties
-      print("=== VIDEO FRAME OBJECT DEBUGGING ===")
       print(f"cur_img type: {type(cur_img)}")
-      if hasattr(cur_img, '__dict__'):
-        print(f"cur_img properties: {list(cur_img.__dict__.keys())}")
       
-      print(f"img_src type: {type(img_src)}")
-      if hasattr(img_src, '__dict__'):
-        print(f"img_src properties: {list(img_src.__dict__.keys())}")
+      # Explore video frame object properties to find the canvas
+      print("=== EXPLORING VIDEO FRAME PROPERTIES ===")
+      try:
+        # Try to list all available properties
+        if hasattr(cur_img, 'object_keys'):
+          print(f"Available keys: {list(cur_img.object_keys())}")
+        
+        # Try common property names for video frames
+        properties_to_check = ['sources', 'imageData', 'canvas', 'data', 'image', 'frame', 'source', 'cvs']
+        for prop in properties_to_check:
+          has_prop = hasattr(cur_img, prop)
+          print(f"cur_img.{prop}: {has_prop}")
+          if has_prop:
+            prop_value = getattr(cur_img, prop)
+            print(f"  -> type: {type(prop_value)}")
+            if hasattr(prop_value, 'width') and hasattr(prop_value, 'height'):
+              print(f"  -> dimensions: {prop_value.width}x{prop_value.height}")
+      except Exception as e:
+        print(f"Error exploring properties: {e}")
       
-      # Check if there are other canvas references
-      if hasattr(cur_img, 'canvas'):
-        print(f"cur_img has canvas property: {cur_img.canvas}")
-      if hasattr(img_src, 'canvas'):
-        print(f"img_src has canvas property: {img_src.canvas}")
-      
-      # Check for other image data references
+      # Try direct access to imageData if it exists
+      img_cvs = None
       if hasattr(cur_img, 'imageData'):
-        print(f"cur_img has direct imageData: {cur_img.imageData}")
-        if cur_img.imageData != img_cvs:
-          print("WARNING: cur_img.imageData != img_src.imageData")
+        img_cvs = cur_img.imageData
+        print("Using cur_img.imageData directly")
+      elif hasattr(cur_img, 'canvas'):
+        img_cvs = cur_img.canvas  
+        print("Using cur_img.canvas")
+      elif hasattr(cur_img, 'sources') and len(cur_img.sources) > 0:
+        # Fallback to original logic if sources exists
+        img_src = cur_img.sources[0]
+        img_cvs = img_src.imageData
+        print("Using cur_img.sources[0].imageData")
+      else:
+        print("ERROR: Could not find canvas/imageData in video frame object")
+        return
+      print(f"Final canvas type: {type(img_cvs)}")
+      print(f"Final canvas dimensions: {img_cvs.width}x{img_cvs.height}")
       
     except Exception as e:
       print(f"ERROR: Failed to access video frame data: {e}")
