@@ -26,9 +26,32 @@ def main(mode='process', method='hist'):
     if hasattr(store.state, 'videos'):
       print(f"store.state.videos has all: {hasattr(store.state.videos, 'all')}")
       if hasattr(store.state.videos, 'all'):
-        print(f"videos.all keys: {list(store.state.videos.all.keys())}")
-        print(f"Looking for imageId: {str(context.imageId)}")
-        print(f"imageId exists in videos.all: {str(context.imageId) in store.state.videos.all}")
+        videos_all = store.state.videos.all
+        print(f"videos.all type: {type(videos_all)}")
+        
+        # Try different ways to explore the object
+        if hasattr(videos_all, 'keys'):
+          print(f"videos.all keys: {list(videos_all.keys())}")
+        elif hasattr(videos_all, '__iter__'):
+          try:
+            # If it's iterable, try to get some elements
+            items = list(videos_all)[:5]  # First 5 items only
+            print(f"videos.all first items: {items}")
+          except:
+            print("videos.all is iterable but can't list items")
+        
+        # Try to access by imageId directly
+        try:
+          imageId_str = str(context.imageId)
+          print(f"Looking for imageId: {imageId_str}")
+          if hasattr(videos_all, imageId_str):
+            print(f"imageId exists as attribute: True")
+          else:
+            # Try getattr approach (what we use in the actual code)
+            cur_img_test = getattr(videos_all, imageId_str, None)
+            print(f"getattr result: {cur_img_test is not None}")
+        except Exception as e:
+          print(f"Error checking imageId: {e}")
     
     # Video mode access (focused on video only since that's what you're using)
     try:
