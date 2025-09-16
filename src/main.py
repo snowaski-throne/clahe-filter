@@ -74,49 +74,83 @@ def get_frame_np_processed(api, images_cache, video_id, frame_index, method='his
 
 def main(mode='process', method='hist'):
   try:
-    app = slyApp.app
-    store = slyApp.store
-    app = getattr(app, '$children')[0]
-
-    context = app.context
-    state = app.state
+    # Safer access to Supervisely app components with fallbacks
+    app = None
+    store = None
+    context = None
+    state = None
+    
+    try:
+      app = slyApp.app
+      if hasattr(slyApp, 'store'):
+        store = slyApp.store
+      app = getattr(app, '$children')[0]
+      context = app.context
+      state = app.state
+    except Exception as access_error:
+      print(f"Warning: Limited access to Supervisely components: {access_error}")
+    
+    # Get current image/video ID
+    current_image_id = None
+    if context and hasattr(context, 'imageId'):
+      current_image_id = context.imageId
+    else:
+      # Try alternative access methods
+      try:
+        if app and hasattr(app, 'context'):
+          current_image_id = app.context.imageId
+      except:
+        current_image_id = "unknown"
     
     print(f"Main called with mode={mode}, method={method}")
-    print(f"Current imageId: {context.imageId}")
+    print(f"Current imageId: {current_image_id}")
     
-    # Frame-level processing approach - much more efficient!
-    print("=== FRAME-LEVEL PROCESSING ===")
+    # CORS-safe processing approach using CSS filters
+    print("=== CSS FILTER-BASED PROCESSING ===")
     
-    # Get current frame information  
-    try:
-      current_frame = getattr(store.state.videos.all, str(context.imageId))
-      
-      # Extract video ID and frame information
-      video_id = None
-      frame_index = 0
-      
-      if hasattr(current_frame, 'videoId'):
-        video_id = current_frame.videoId
-      elif hasattr(current_frame, 'id'):
-        video_id = current_frame.id
+    # Get processing parameters from UI state (with fallbacks)
+    clip_limit = 40
+    use_lab = False
+    
+    if state:
+      try:
+        if hasattr(state, 'SliderAutoId6MqE3') and method == 'clahe':
+          clip_limit = state.SliderAutoId6MqE3.value
+        if hasattr(state, 'labCheck'):
+          use_lab = state.labCheck
+      except Exception as state_error:
+        print(f"Warning: Could not access UI state: {state_error}")
+    
+    print(f"Processing parameters:")
+    print(f"  Method: {method}")
+    print(f"  Clip limit: {clip_limit}")
+    print(f"  Use LAB color space: {use_lab}")
+    
+    # Extract video/frame information if available
+    video_id = current_image_id
+    frame_index = 0
+    
+    if store:
+      try:
+        current_frame = getattr(store.state.videos.all, str(current_image_id))
         
-      if hasattr(current_frame, 'frameIndex'):
-        frame_index = current_frame.frameIndex
-      elif hasattr(current_frame, 'index'):
-        frame_index = current_frame.index
+        if hasattr(current_frame, 'videoId'):
+          video_id = current_frame.videoId
+        elif hasattr(current_frame, 'id'):
+          video_id = current_frame.id
+          
+        if hasattr(current_frame, 'frameIndex'):
+          frame_index = current_frame.frameIndex
+        elif hasattr(current_frame, 'index'):
+          frame_index = current_frame.index
+          
+        print(f"Processing video_id: {video_id}, frame_index: {frame_index}")
         
-      print(f"Processing video_id: {video_id}, frame_index: {frame_index}")
-      
-    except Exception as e:
-      print(f"Error getting frame info: {e}")
-      # Fallback to using imageId directly
-      video_id = context.imageId
-      frame_index = 0
-      print(f"Using fallback - video_id: {video_id}, frame_index: {frame_index}")
-    
-    # Get processing parameters from UI state
-    clip_limit = state.SliderAutoId6MqE3.value if method == 'clahe' else 40
-    use_lab = state.labCheck
+      except Exception as e:
+        print(f"Note: Using fallback frame info due to: {e}")
+        print(f"Using fallback - video_id: {video_id}, frame_index: {frame_index}")
+    else:
+      print(f"Using minimal processing - video_id: {video_id}, frame_index: {frame_index}")
     
     print(f"Processing parameters:")
     print(f"  Method: {method}")
@@ -124,191 +158,145 @@ def main(mode='process', method='hist'):
     print(f"  Use LAB color space: {use_lab}")
     
     if mode == 'restore':
-      print("🔄 Frame processing mode set to ORIGINAL (no processing)")
-      # For frame-based approach, restore just means switching off processing
-      # The frame cache will handle serving original frames
+      print("🔄 Restoring original image appearance")
+      apply_css_filters_to_display('restore', 0, False)
       return
     
-    # Actually process and display the current frame
-    print("🎯 Processing current frame:")
+    # Apply CSS filter-based processing (CORS-safe)
+    print("🎯 Applying CSS filter-based processing:")
+    print(f"🔧 Processing method: {method.upper()}")
+    if method == 'clahe':
+      print(f"⚙️ CLAHE clip limit: {clip_limit}")
+    print(f"🎨 Color space: {'LAB' if use_lab else 'Grayscale → BGR'}")
     
-    try:
-      # Get the current frame data from Supervisely's store
-      current_frame = getattr(store.state.videos.all, str(context.imageId))
-      
-      if hasattr(current_frame, 'fullStorageUrl'):
-        frame_url = current_frame.fullStorageUrl
-        print(f"📥 Frame URL: {frame_url[:100]}...")
-        
-        # Download and process the actual frame
-        from js import fetch, ImageData, document
-        import asyncio
-        
-        print(f"🔧 Processing method: {method.upper()}")
-        if method == 'clahe':
-          print(f"⚙️ CLAHE clip limit: {clip_limit}")
-        print(f"🎨 Color space: {'LAB' if use_lab else 'Grayscale → BGR'}")
-        
-        # Create a promise to download and process the frame
-        async def process_frame_async():
-          try:
-            # Fetch the frame image
-            response = await fetch(frame_url)
-            array_buffer = await response.arrayBuffer()
-            
-            # Convert to numpy array (this is a simplified approach)
-            # In practice, you'd need to decode the image properly
-            print("📊 Downloaded frame data")
-            
-            # For now, let's create a demo processed image using canvas
-            # This demonstrates the concept - in production you'd process the actual image data
-            update_display_with_processing_sync(method, clip_limit, use_lab)
-            
-            print("✅ Frame processing and display update complete!")
-            
-          except Exception as e:
-            print(f"Error in async frame processing: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        # For synchronous processing, let's implement a simpler approach
-        update_display_with_processing_sync(method, clip_limit, use_lab)
-        
-      else:
-        print("❌ Could not find frame URL")
-        
-    except Exception as e:
-      print(f"Error accessing frame data: {e}")
-      # Fallback: demonstrate with canvas manipulation
-      try:
-        update_display_with_processing_sync(method, clip_limit, use_lab)
-      except Exception as fallback_error:
-        print(f"Fallback processing also failed: {fallback_error}")
-        import traceback
-        traceback.print_exc()
+    # Apply the filters
+    apply_css_filters_to_display(method, clip_limit, use_lab)
 
   except Exception as e:
     print(f"Error in main function: {str(e)}")
     import traceback
     traceback.print_exc()
 
-def update_display_with_processing_sync(method, clip_limit, use_lab):
-    """Update the display with processed image using canvas manipulation"""
-    from js import document, ImageData
+def apply_css_filters_to_display(method, clip_limit, use_lab):
+    """Apply CSS filters to image/video elements (CORS-safe approach)"""
+    from js import document
     
     try:
-        # Find canvas or img elements that might be displaying the frame
-        canvas_elements = document.querySelectorAll('canvas')
+        # Find all potential image/video display elements
         img_elements = document.querySelectorAll('img')
+        canvas_elements = document.querySelectorAll('canvas')
+        video_elements = document.querySelectorAll('video')
         
-        print(f"🖼️ Found {len(canvas_elements)} canvas and {len(img_elements)} img elements")
+        # Also look for elements that might contain video frames
+        video_containers = document.querySelectorAll('[class*="video"], [class*="player"], [class*="sly"]')
         
-        # Try to process canvas elements first (most likely for video frames)
-        for i, canvas in enumerate(canvas_elements):
-            if hasattr(canvas, 'width') and canvas.width > 100 and hasattr(canvas, 'getContext'):
-                try:
-                    ctx = canvas.getContext('2d')
-                    width = canvas.width
-                    height = canvas.height
-                    
-                    print(f"🎨 Processing canvas {i}: {width}x{height}")
-                    
-                    # Get image data from canvas
-                    image_data = ctx.getImageData(0, 0, width, height)
-                    data = image_data.data
-                    
-                    # Apply processing filter to image data
-                    apply_canvas_filter(data, width, height, method, clip_limit, use_lab)
-                    
-                    # Put processed data back to canvas
-                    ctx.putImageData(image_data, 0, 0)
-                    
-                    print(f"✅ Applied {method.upper()} processing to canvas {i}")
-                    return True
-                    
-                except Exception as canvas_error:
-                    print(f"Error processing canvas {i}: {canvas_error}")
-                    continue
+        print(f"🖼️ Found {len(img_elements)} img, {len(canvas_elements)} canvas, {len(video_elements)} video elements")
+        print(f"🖼️ Found {len(video_containers)} video container elements")
         
-        # If no canvas worked, try to find and process img elements
+        # Generate CSS filter based on method
+        css_filter = generate_css_filter(method, clip_limit, use_lab)
+        print(f"🎨 Applying CSS filter: {css_filter}")
+        
+        elements_processed = 0
+        
+        # Apply to img elements
         for i, img in enumerate(img_elements):
-            if hasattr(img, 'naturalWidth') and img.naturalWidth > 100:
-                try:
-                    # Create a canvas to process the image
-                    canvas = document.createElement('canvas')
-                    ctx = canvas.getContext('2d')
-                    
-                    canvas.width = img.naturalWidth
-                    canvas.height = img.naturalHeight
-                    
-                    # Draw image to canvas
-                    ctx.drawImage(img, 0, 0)
-                    
-                    # Get and process image data
-                    image_data = ctx.getImageData(0, 0, canvas.width, canvas.height)
-                    data = image_data.data
-                    
-                    apply_canvas_filter(data, canvas.width, canvas.height, method, clip_limit, use_lab)
-                    
-                    # Put processed data back
-                    ctx.putImageData(image_data, 0, 0)
-                    
-                    # Replace image source with processed canvas
-                    img.src = canvas.toDataURL()
-                    
-                    print(f"✅ Applied {method.upper()} processing to image {i}")
-                    return True
-                    
-                except Exception as img_error:
-                    print(f"Error processing image {i}: {img_error}")
-                    continue
+            try:
+                if hasattr(img, 'naturalWidth') and img.naturalWidth > 50:  # Skip small images
+                    img.style.filter = css_filter
+                    img.style.transition = "filter 0.3s ease"  # Smooth transition
+                    elements_processed += 1
+                    print(f"✅ Applied filter to img element {i}")
+            except Exception as e:
+                print(f"Error applying filter to img {i}: {e}")
         
-        print("⚠️ No suitable canvas or image elements found for processing")
-        return False
+        # Apply to canvas elements
+        for i, canvas in enumerate(canvas_elements):
+            try:
+                if hasattr(canvas, 'width') and canvas.width > 50:
+                    canvas.style.filter = css_filter
+                    canvas.style.transition = "filter 0.3s ease"
+                    elements_processed += 1
+                    print(f"✅ Applied filter to canvas element {i}")
+            except Exception as e:
+                print(f"Error applying filter to canvas {i}: {e}")
+        
+        # Apply to video elements
+        for i, video in enumerate(video_elements):
+            try:
+                video.style.filter = css_filter
+                video.style.transition = "filter 0.3s ease"
+                elements_processed += 1
+                print(f"✅ Applied filter to video element {i}")
+            except Exception as e:
+                print(f"Error applying filter to video {i}: {e}")
+        
+        # Apply to video container elements (may contain the actual video display)
+        for i, container in enumerate(video_containers):
+            try:
+                # Apply to container and all image/canvas children
+                container.style.filter = css_filter
+                container.style.transition = "filter 0.3s ease"
+                
+                # Also apply to children
+                children = container.querySelectorAll('img, canvas, video')
+                for child in children:
+                    child.style.filter = css_filter
+                    child.style.transition = "filter 0.3s ease"
+                
+                elements_processed += 1
+                print(f"✅ Applied filter to video container {i} and {len(children)} children")
+            except Exception as e:
+                print(f"Error applying filter to container {i}: {e}")
+        
+        if elements_processed > 0:
+            print(f"🎉 Successfully applied {method.upper()} filter to {elements_processed} elements")
+            return True
+        else:
+            print("⚠️ No suitable elements found for filter application")
+            return False
         
     except Exception as e:
-        print(f"Error in display update: {e}")
+        print(f"Error in CSS filter application: {e}")
         return False
 
-def apply_canvas_filter(data, width, height, method, clip_limit, use_lab):
-    """Apply image processing filter to canvas ImageData"""
+def generate_css_filter(method, clip_limit, use_lab):
+    """Generate CSS filter string based on processing method and parameters"""
     try:
-        # Simple brightness/contrast adjustments as a demonstration
-        # This is a simplified version - in production you'd use proper OpenCV processing
+        if method == 'restore':
+            return 'none'  # Remove all filters
         
-        if method == 'clahe':
-            # Simulate CLAHE with adaptive brightness adjustment
-            factor = min(clip_limit / 20.0, 3.0)  # Scale factor based on clip limit
+        elif method == 'clahe':
+            # Simulate CLAHE with brightness and contrast adjustments
+            # Map clip_limit (typically 1-100) to reasonable CSS values
+            brightness_factor = 1.0 + (clip_limit - 20) / 100.0  # Base adjustment
+            contrast_factor = 1.0 + (clip_limit - 20) / 50.0     # Contrast enhancement
             
-            for i in range(0, len(data), 4):  # RGBA pixels
-                r, g, b = data[i], data[i+1], data[i+2]
-                
-                # Convert to grayscale for processing
-                gray = int(0.299 * r + 0.587 * g + 0.114 * b)
-                
-                # Simple adaptive enhancement
-                enhanced = min(255, max(0, int(gray * factor)))
-                
-                # Apply enhancement while preserving color ratios
-                if gray > 0:
-                    ratio = enhanced / gray
-                    data[i] = min(255, max(0, int(r * ratio)))      # R
-                    data[i+1] = min(255, max(0, int(g * ratio)))    # G  
-                    data[i+2] = min(255, max(0, int(b * ratio)))    # B
-                
+            # Clamp values to reasonable ranges
+            brightness_factor = max(0.5, min(2.0, brightness_factor))
+            contrast_factor = max(0.8, min(2.5, contrast_factor))
+            
+            if use_lab:
+                # LAB processing simulation with additional saturation
+                return f"brightness({brightness_factor}) contrast({contrast_factor}) saturate(1.2)"
+            else:
+                # Grayscale-based processing
+                return f"brightness({brightness_factor}) contrast({contrast_factor})"
+        
         elif method == 'hist':
-            # Simulate histogram equalization with contrast stretch
-            for i in range(0, len(data), 4):  # RGBA pixels
-                r, g, b = data[i], data[i+1], data[i+2]
-                
-                # Simple contrast stretching
-                data[i] = min(255, max(0, int((r - 128) * 1.5 + 128)))      # R
-                data[i+1] = min(255, max(0, int((g - 128) * 1.5 + 128)))    # G
-                data[i+2] = min(255, max(0, int((b - 128) * 1.5 + 128)))    # B
+            # Simulate histogram equalization with contrast and brightness
+            if use_lab:
+                # LAB color space simulation
+                return "contrast(1.4) brightness(1.1) saturate(1.15)"
+            else:
+                # Standard histogram equalization
+                return "contrast(1.5) brightness(1.05)"
         
-        print(f"🎯 Applied {method.upper()} filter to {width}x{height} image data")
-        
+        else:
+            return 'none'
+            
     except Exception as e:
-        print(f"Error applying canvas filter: {e}")
+        print(f"Error generating CSS filter: {e}")
+        return 'none'
 
 main
