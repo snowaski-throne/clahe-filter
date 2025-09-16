@@ -80,13 +80,13 @@ def main(mode='process', method='hist'):
     context = None
     state = None
     
-    try:
-      app = slyApp.app
+  try:
+    app = slyApp.app
       if hasattr(slyApp, 'store'):
-        store = slyApp.store
-      app = getattr(app, '$children')[0]
-      context = app.context
-      state = app.state
+    store = slyApp.store
+    app = getattr(app, '$children')[0]
+    context = app.context
+    state = app.state
     except Exception as access_error:
       print(f"Warning: Limited access to Supervisely components: {access_error}")
     
@@ -145,8 +145,8 @@ def main(mode='process', method='hist'):
           frame_index = current_frame.index
           
         print(f"Processing video_id: {video_id}, frame_index: {frame_index}")
-        
-      except Exception as e:
+      
+    except Exception as e:
         print(f"Note: Using fallback frame info due to: {e}")
         print(f"Using fallback - video_id: {video_id}, frame_index: {frame_index}")
     else:
@@ -573,7 +573,7 @@ def create_video_blob(processed_video_data):
         print(f"✅ Created blob URL: {blob_url[:50]}...")
         return blob_url
         
-    except Exception as e:
+      except Exception as e:
         print(f"Error creating video blob: {e}")
         import traceback
         traceback.print_exc()
@@ -581,7 +581,7 @@ def create_video_blob(processed_video_data):
 
 def update_video_player_source(processed_blob_url):
     """Update the video player source with processed video"""
-    try:
+      try:
         from js import document
         
         print("🎯 Comprehensive video player search...")
@@ -634,7 +634,141 @@ def update_video_player_source(processed_blob_url):
         
         updated = False
         
-        # Strategy 1: Try to update standard video elements
+        # Strategy 1: Target Supervisely's exact video player structure
+        print("🎯 PRIORITY: Targeting Supervisely's .fullsize canvas video player...")
+        
+        # Find the exact structure: div.fullsize containing the video canvas
+        fullsize_containers = document.querySelectorAll('div.fullsize[data-v-4662ca9e]')
+        if not fullsize_containers:
+            # Fallback to any .fullsize div
+            fullsize_containers = document.querySelectorAll('div.fullsize')
+        
+        for i, container in enumerate(fullsize_containers):
+            try:
+                # Look for canvas inside this container
+                canvas = container.querySelector('canvas[style*="position: absolute"][style*="z-index"]')
+                
+                if canvas:
+                    width = getattr(canvas, 'width', 0)
+                    height = getattr(canvas, 'height', 0)
+                    display_width = canvas.style.width
+                    display_height = canvas.style.height
+                    
+                    print(f"🎨 Found Supervisely video canvas in container {i}:")
+                    print(f"   Canvas size: {width}x{height}")
+                    print(f"   Display size: {display_width} x {display_height}")
+                    print(f"   Z-index: {canvas.style.zIndex}")
+                    
+                    # Create precise video overlay
+                    overlay_video = document.createElement('video')
+                    overlay_video.src = processed_blob_url
+                    overlay_video.autoplay = True
+                    overlay_video.loop = True
+                    overlay_video.muted = True
+                    overlay_video.controls = False
+                    
+                    # Match exact positioning and styling
+                    overlay_video.style.position = 'absolute'
+                    overlay_video.style.top = '0px'
+                    overlay_video.style.left = '0px'
+                    overlay_video.style.width = display_width or '714px'
+                    overlay_video.style.height = display_height or '565px'
+                    overlay_video.style.zIndex = '0'  # Above canvas (-1) but below controls
+                    overlay_video.style.pointerEvents = 'none'
+                    overlay_video.style.objectFit = 'fill'  # Fill the exact dimensions
+                    
+                    # Insert into the same container
+                    container.appendChild(overlay_video)
+                    
+                    print(f"✅ Created precise video overlay in Supervisely container")
+                    updated = True
+                    
+                    # ALSO: Try to replace canvas content directly for seamless integration
+                    try:
+                        ctx = canvas.getContext('2d')
+                        if ctx:
+                            # Create hidden video element for canvas drawing
+                            hidden_video = document.createElement('video')
+                            hidden_video.src = processed_blob_url
+                            hidden_video.autoplay = True
+                            hidden_video.muted = True
+                            hidden_video.loop = True
+                            hidden_video.style.display = 'none'
+                            
+                            # Add to DOM but hidden
+                            document.body.appendChild(hidden_video)
+                            
+                            def draw_processed_frame():
+                                try:
+                                    if hidden_video.readyState >= 2 and hidden_video.videoWidth > 0:
+                                        # Clear canvas and draw processed video
+                                        ctx.clearRect(0, 0, canvas.width, canvas.height)
+                                        ctx.drawImage(hidden_video, 0, 0, canvas.width, canvas.height)
+                                except Exception as draw_error:
+                                    print(f"Frame draw error: {draw_error}")
+                            
+                            # Start drawing when video is ready
+                            def start_drawing():
+                                print("🎬 Starting canvas replacement with processed video")
+                                # Draw at 30fps
+                                from js import setInterval
+                                setInterval(draw_processed_frame, 33)
+                            
+                            hidden_video.addEventListener('canplay', start_drawing)
+                            
+                            print(f"✅ Canvas replacement system initialized")
+                            
+                    except Exception as canvas_error:
+                        print(f"Canvas direct replacement failed: {canvas_error}")
+                    
+                    # Success - found and processed the main video player
+                    break
+                    
+            except Exception as e:
+                print(f"Error processing fullsize container {i}: {e}")
+        
+        # Additional fallback: Look for any large canvas with video-like properties
+        if not updated:
+            print("🔍 Fallback: Searching for any large video canvas...")
+            all_canvases = document.querySelectorAll('canvas')
+            
+            for i, canvas in enumerate(all_canvases):
+                try:
+                    width = getattr(canvas, 'width', 0)
+                    height = getattr(canvas, 'height', 0)
+                    
+                    # Look for large canvases that could be video players
+                    if width >= 1000 and height >= 500:  # Likely video canvas
+                        print(f"🎨 Found large canvas {i}: {width}x{height}")
+                        
+                        # Create overlay video
+                        overlay_video = document.createElement('video')
+                        overlay_video.src = processed_blob_url
+                        overlay_video.autoplay = True
+                        overlay_video.loop = True
+                        overlay_video.muted = True
+                        overlay_video.controls = False
+                        
+                        # Position over canvas
+                        overlay_video.style.position = 'absolute'
+                        overlay_video.style.top = canvas.style.top or '0px'
+                        overlay_video.style.left = canvas.style.left or '0px'
+                        overlay_video.style.width = canvas.style.width or f'{width}px'
+                        overlay_video.style.height = canvas.style.height or f'{height}px'
+                        overlay_video.style.zIndex = '1'
+                        overlay_video.style.pointerEvents = 'none'
+                        
+                        # Insert after canvas
+                        canvas.parentNode.insertBefore(overlay_video, canvas.nextSibling)
+                        
+                        print(f"✅ Created fallback video overlay for large canvas")
+                        updated = True
+                        break
+                        
+                except Exception as e:
+                    print(f"Error processing fallback canvas {i}: {e}")
+        
+        # Strategy 2: Try to update standard video elements
         standard_elements = [c for c in video_candidates if c['tag'] in ['video', 'iframe', 'source']]
         for i, candidate in enumerate(standard_elements):
             element = candidate['element']
@@ -658,7 +792,7 @@ def update_video_player_source(processed_blob_url):
                     element.style.backgroundRepeat = "no-repeat"
                     element.style.backgroundPosition = "center"
                     print(f"✅ Set background image for large element {i} ({candidate['tag']})")
-                    updated = True
+            updated = True
             except Exception as e:
                 print(f"Error setting background for element {i}: {e}")
         
@@ -706,49 +840,160 @@ def update_video_player_source(processed_blob_url):
                 if width > 200 and height > 150 and not ('icon' in src or 'logo' in src or 'loading' in src):
                     img.src = processed_blob_url
                     print(f"✅ Replaced large img element {i} ({width}x{height})")
-                    updated = True
-                    
+            updated = True
+            
             except Exception as e:
                 print(f"Error updating img {i}: {e}")
         
-        # Strategy 5: Create new video element if none found
+        # Strategy 5: Override at Supervisely API/Store level
         if not updated:
-            print("🆕 Creating new video element as fallback...")
+            print("🔄 Attempting Supervisely API/Store level override...")
             try:
-                # Find a suitable container
-                main_container = None
-                for candidate in video_candidates:
-                    if candidate['area'] > 50000:  # Very large container
-                        main_container = candidate['element']
-                        break
-                
-                if main_container:
-                    # Create and insert video element
-                    new_video = document.createElement('video')
-                    new_video.src = processed_blob_url
-                    new_video.controls = True
-                    new_video.autoplay = True
-                    new_video.style.width = '100%'
-                    new_video.style.height = '100%'
-                    new_video.style.position = 'absolute'
-                    new_video.style.top = '0'
-                    new_video.style.left = '0'
-                    new_video.style.zIndex = '1000'
+                # Try to update the video source in Supervisely's store
+                from js import slyApp
+                if hasattr(slyApp, 'store') and slyApp.store:
+                    store = slyApp.store
                     
-                    main_container.appendChild(new_video)
-                    print("✅ Created new video element in main container")
-                    updated = True
-                    
+                    # Try to find and update video data in store
+                    if hasattr(store, 'state') and hasattr(store.state, 'videos'):
+                        videos = store.state.videos
+                        if hasattr(videos, 'all'):
+                            # Try to update the video URL in the store
+                            try:
+                                # Get current video info
+                                current_video = getattr(videos.all, str(context.imageId if 'context' in globals() else ''))
+                                if current_video and hasattr(current_video, 'fullStorageUrl'):
+                                    old_url = current_video.fullStorageUrl
+                                    # Replace with processed blob URL
+                                    current_video.fullStorageUrl = processed_blob_url
+                                    print(f"✅ Updated store video URL: {old_url[:30]}... -> {processed_blob_url[:30]}...")
+                                    updated = True
+                                    
+                                    # Force Vue reactivity update
+                                    if hasattr(store, 'commit'):
+                                        store.commit('UPDATE_VIDEO_URL', {'id': context.imageId, 'url': processed_blob_url})
+                                        print("✅ Triggered Vue store update")
+                                        
+                            except Exception as e:
+                                print(f"Store update method 1 failed: {e}")
+                            
+                            # Try alternative store update methods
+                            try:
+                                if hasattr(videos, 'updateVideoUrl'):
+                                    videos.updateVideoUrl(context.imageId, processed_blob_url)
+                                    print("✅ Used videos.updateVideoUrl method")
+                                    updated = True
+      except Exception as e:
+                                print(f"Store update method 2 failed: {e}")
+                                
             except Exception as e:
-                print(f"Error creating new video element: {e}")
+                print(f"Store override failed: {e}")
         
-        if updated:
+        # Strategy 6: Global video request interception
+        if not updated:
+            print("🌐 Setting up global video request interception...")
+            try:
+                # Override global fetch to intercept video requests
+                from js import window
+                
+                # Store original fetch
+                if not hasattr(window, '_original_fetch'):
+                    window._original_fetch = window.fetch
+                
+                def intercepted_fetch(url, options=None):
+                    # Check if this is a video request
+                    if url and ('.mp4' in str(url) or 'video' in str(url)):
+                        print(f"🎯 Intercepted video request: {str(url)[:50]}...")
+                        # Return our processed video instead
+                        return window._original_fetch(processed_blob_url, options)
+                    else:
+                        # Pass through non-video requests
+                        return window._original_fetch(url, options)
+                
+                # Replace fetch globally
+                window.fetch = intercepted_fetch
+                print("✅ Global video request interception active")
+                updated = True
+                
+            except Exception as e:
+                print(f"Global interception failed: {e}")
+        
+        # Strategy 7: Create overlay video element
+        if not updated:
+            print("🆕 Creating overlay video element...")
+            try:
+                # Create overlay video that covers the entire video area
+                overlay_video = document.createElement('video')
+                overlay_video.src = processed_blob_url
+                overlay_video.controls = True
+                overlay_video.autoplay = True
+                overlay_video.loop = True
+                overlay_video.muted = True
+                
+                # Style as overlay
+                overlay_video.style.position = 'fixed'
+                overlay_video.style.top = '50%'
+                overlay_video.style.left = '50%'
+                overlay_video.style.transform = 'translate(-50%, -50%)'
+                overlay_video.style.width = '80%'
+                overlay_video.style.height = '60%'
+                overlay_video.style.zIndex = '9999'
+                overlay_video.style.border = '3px solid #00ff00'
+                overlay_video.style.borderRadius = '10px'
+                overlay_video.style.backgroundColor = 'black'
+                overlay_video.style.boxShadow = '0 0 20px rgba(0,255,0,0.5)'
+                
+                # Add close button
+                close_button = document.createElement('button')
+                close_button.innerHTML = '✕ Close Processed Video'
+                close_button.style.position = 'absolute'
+                close_button.style.top = '-40px'
+                close_button.style.right = '0px'
+                close_button.style.backgroundColor = '#ff4444'
+                close_button.style.color = 'white'
+                close_button.style.border = 'none'
+                close_button.style.padding = '10px'
+                close_button.style.borderRadius = '5px'
+                close_button.style.cursor = 'pointer'
+                close_button.style.zIndex = '10000'
+                
+                def close_overlay():
+                    overlay_video.remove()
+                    
+                close_button.onclick = close_overlay
+                
+                # Add title
+                title = document.createElement('div')
+                title.innerHTML = f'🎬 Processed Video ({method.upper()})'
+                title.style.position = 'absolute'
+                title.style.top = '-40px'
+                title.style.left = '0px'
+                title.style.color = '#00ff00'
+                title.style.fontSize = '16px'
+                title.style.fontWeight = 'bold'
+                title.style.backgroundColor = 'rgba(0,0,0,0.8)'
+                title.style.padding = '5px 10px'
+                title.style.borderRadius = '5px'
+                
+                # Append to body
+                overlay_video.appendChild(close_button)
+                overlay_video.appendChild(title)
+                document.body.appendChild(overlay_video)
+                
+                print("✅ Created overlay video player with processed content")
+            updated = True
+      
+            except Exception as e:
+                print(f"Error creating overlay video: {e}")
+      
+      if updated:
             print("🎉 Video player source updated successfully!")
-        else:
+      else:
             print("⚠️ All update strategies failed - Supervisely uses unknown video implementation")
+            print("💡 However, processed video blob is available and can be accessed manually")
         
         return updated
-        
+      
     except Exception as e:
         print(f"Error updating video player: {e}")
         return False
@@ -776,8 +1021,8 @@ def restore_original_video():
         
         print(f"✅ Restored {restored} elements to original state")
         return True
-        
-    except Exception as e:
+    
+  except Exception as e:
         print(f"Error restoring video: {e}")
         return False
 
