@@ -1,14 +1,16 @@
 {
     "type": "client_side_app",
     "version": "2.0.0",
-    "name": "CLAHE Filter visualizer",
-    "description": "Real-time CLAHE filter visualization",
+    "name": "Image Enhancement Tool",
+    "description": "Real-time histogram equalization and CLAHE enhancement for images and video frames",
     "categories": [
       "images",
-      "visualization"
+      "videos", 
+      "visualization",
+      "enhancement"
     ],
     "min_instance_version": "6.12.13",
-    "integrated_into": ["image_annotation_tool"],
+    "integrated_into": ["image_annotation_tool", "video_annotation_tool"],
     "gui_folder_path": "src",
     "poster": "https://github.com/user-attachments/assets/ddb77656-8e0c-4b76-b2bf-dc082783eb7b",
     "icon": "https://github.com/user-attachments/assets/a4c681c2-bd3b-4d86-b1da-efa8f5859a16",
