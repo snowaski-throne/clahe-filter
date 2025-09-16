@@ -21,88 +21,73 @@ def main(mode='process', method='hist'):
     print(f"Current imageId: {context.imageId}")
     
     # Debug video mode access
-    print("=== DEBUGGING VIDEO MODE ACCESS ===")
-    print(f"store.state has videos: {hasattr(store.state, 'videos')}")
-    if hasattr(store.state, 'videos'):
-      print(f"store.state.videos has all: {hasattr(store.state.videos, 'all')}")
-      if hasattr(store.state.videos, 'all'):
-        videos_all = store.state.videos.all
-        print(f"videos.all type: {type(videos_all)}")
-        
-        # Try different ways to explore the object
-        if hasattr(videos_all, 'keys'):
-          print(f"videos.all keys: {list(videos_all.keys())}")
-        elif hasattr(videos_all, '__iter__'):
-          try:
-            # If it's iterable, try to get some elements
-            items = list(videos_all)[:5]  # First 5 items only
-            print(f"videos.all first items: {items}")
-          except:
-            print("videos.all is iterable but can't list items")
-        
-        # Try to access by imageId directly
-        try:
-          imageId_str = str(context.imageId)
-          print(f"Looking for imageId: {imageId_str}")
-          if hasattr(videos_all, imageId_str):
-            print(f"imageId exists as attribute: True")
-          else:
-            # Try getattr approach (what we use in the actual code)
-            cur_img_test = getattr(videos_all, imageId_str, None)
-            print(f"getattr result: {cur_img_test is not None}")
-        except Exception as e:
-          print(f"Error checking imageId: {e}")
+    print("=== SEARCHING FOR VIDEO CANVAS ===")
+    print(f"Current imageId: {context.imageId}")
     
-    # Video mode access (focused on video only since that's what you're using)
-    try:
-      cur_img = getattr(store.state.videos.all, str(context.imageId))
-      print(f"Found video frame for imageId {context.imageId}")
-      print(f"cur_img type: {type(cur_img)}")
+    # The metadata record doesn't contain the canvas - let's look elsewhere
+    img_cvs = None
+    
+    # Try different locations where the video frame canvas might be stored
+    canvas_search_paths = [
+      # Try current video frame in store
+      ("store.state.videos.current", lambda: getattr(store.state.videos, 'current', None)),
+      ("store.state.videos.currentFrame", lambda: getattr(store.state.videos, 'currentFrame', None)),
+      ("store.state.videos.activeFrame", lambda: getattr(store.state.videos, 'activeFrame', None)),
       
-      # Explore video frame object properties to find the canvas
-      print("=== EXPLORING VIDEO FRAME PROPERTIES ===")
+      # Try context properties
+      ("context.imageData", lambda: getattr(context, 'imageData', None)),
+      ("context.canvas", lambda: getattr(context, 'canvas', None)),
+      ("context.currentFrame", lambda: getattr(context, 'currentFrame', None)),
+      
+      # Try store state general properties
+      ("store.state.currentImage", lambda: getattr(store.state, 'currentImage', None)),
+      ("store.state.activeImage", lambda: getattr(store.state, 'activeImage', None)),
+      ("store.state.frame", lambda: getattr(store.state, 'frame', None)),
+      
+      # Try app context
+      ("app.currentImage", lambda: getattr(app, 'currentImage', None)),
+      ("app.activeFrame", lambda: getattr(app, 'activeFrame', None)),
+    ]
+    
+    for path_name, path_func in canvas_search_paths:
       try:
-        # Try to list all available properties
-        if hasattr(cur_img, 'object_keys'):
-          print(f"Available keys: {list(cur_img.object_keys())}")
+        result = path_func()
+        print(f"Checking {path_name}: {result is not None}")
         
-        # Try common property names for video frames
-        properties_to_check = ['sources', 'imageData', 'canvas', 'data', 'image', 'frame', 'source', 'cvs']
-        for prop in properties_to_check:
-          has_prop = hasattr(cur_img, prop)
-          print(f"cur_img.{prop}: {has_prop}")
-          if has_prop:
-            prop_value = getattr(cur_img, prop)
-            print(f"  -> type: {type(prop_value)}")
-            if hasattr(prop_value, 'width') and hasattr(prop_value, 'height'):
-              print(f"  -> dimensions: {prop_value.width}x{prop_value.height}")
+        if result is not None:
+          print(f"  -> type: {type(result)}")
+          
+          # Check if this object has canvas-like properties
+          canvas_props = ['imageData', 'canvas', 'sources']
+          for prop in canvas_props:
+            if hasattr(result, prop):
+              prop_value = getattr(result, prop)
+              print(f"  -> {prop}: {type(prop_value)}")
+              
+              # Check if this looks like a canvas
+              if hasattr(prop_value, 'width') and hasattr(prop_value, 'height'):
+                print(f"    -> Found canvas! {prop_value.width}x{prop_value.height}")
+                img_cvs = prop_value
+                print(f"    -> Using {path_name}.{prop}")
+                break
+          
+          # Check if result itself is a canvas
+          if img_cvs is None and hasattr(result, 'width') and hasattr(result, 'height'):
+            print(f"  -> Result itself is canvas! {result.width}x{result.height}")
+            img_cvs = result
+            print(f"    -> Using {path_name} directly")
+            
+        if img_cvs is not None:
+          break
+            
       except Exception as e:
-        print(f"Error exploring properties: {e}")
-      
-      # Try direct access to imageData if it exists
-      img_cvs = None
-      if hasattr(cur_img, 'imageData'):
-        img_cvs = cur_img.imageData
-        print("Using cur_img.imageData directly")
-      elif hasattr(cur_img, 'canvas'):
-        img_cvs = cur_img.canvas  
-        print("Using cur_img.canvas")
-      elif hasattr(cur_img, 'sources') and len(cur_img.sources) > 0:
-        # Fallback to original logic if sources exists
-        img_src = cur_img.sources[0]
-        img_cvs = img_src.imageData
-        print("Using cur_img.sources[0].imageData")
-      else:
-        print("ERROR: Could not find canvas/imageData in video frame object")
-        return
-      print(f"Final canvas type: {type(img_cvs)}")
-      print(f"Final canvas dimensions: {img_cvs.width}x{img_cvs.height}")
-      
-    except Exception as e:
-      print(f"ERROR: Failed to access video frame data: {e}")
-      import traceback
-      traceback.print_exc()
+        print(f"Error checking {path_name}: {e}")
+    
+    if img_cvs is None:
+      print("ERROR: Could not find video frame canvas in any location")
       return
+    
+    print(f"SUCCESS: Found canvas with dimensions {img_cvs.width}x{img_cvs.height}")
 
     img_ctx = img_cvs.getContext("2d")
 
@@ -199,48 +184,64 @@ def main(mode='process', method='hist'):
     
     print(f"Created ImageData object: {type(new_image_data)}")
     
-    # Store old version to check if it changes
-    old_version = img_src.version
-    print(f"Current img_src.version: {old_version}")
-    
+    # Update the canvas with processed image data
     img_ctx.putImageData(new_image_data, 0, 0)
+    print("Canvas updated with new image data")
     
-    # For video mode, we might need to trigger additional updates
-    print("=== VIDEO MODE SPECIFIC UPDATES ===")
+    # For video mode, try different update mechanisms
+    print("=== VIDEO MODE CANVAS UPDATE ===")
     
-    # Update the source version
-    old_version = img_src.version
-    img_src.version += 1
-    print(f"Updated img_src.version: {old_version} -> {img_src.version}")
-    
-    # Try to trigger video frame refresh
+    # Try to update canvas version if it has one
     try:
-      if hasattr(cur_img, 'version'):
-        cur_img.version += 1
-        print(f"Updated cur_img.version: {cur_img.version}")
-    except:
-      print("No cur_img.version to update")
+      if hasattr(img_cvs, 'version'):
+        old_version = img_cvs.version
+        img_cvs.version += 1
+        print(f"Updated canvas version: {old_version} -> {img_cvs.version}")
+    except Exception as e:
+      print(f"No canvas version to update: {e}")
     
-    # Try to update the video state
+    # Try to update the video state to trigger refresh
     try:
-      if hasattr(store.state.videos, 'currentImageId'):
-        print(f"Current video imageId: {store.state.videos.currentImageId}")
       if hasattr(store.state.videos, 'version'):
+        old_video_version = store.state.videos.version
         store.state.videos.version += 1
-        print(f"Updated videos.version: {store.state.videos.version}")
-    except:
-      print("No video state version to update")
+        print(f"Updated videos.version: {old_video_version} -> {store.state.videos.version}")
+      
+      # Force trigger a state change on the current imageId
+      if hasattr(store.state.videos, 'currentImageId'):
+        current_id = store.state.videos.currentImageId
+        print(f"Current video imageId: {current_id}")
+        # Trigger a reactive update by temporarily changing and restoring
+        store.state.videos.currentImageId = current_id + "_temp"
+        store.state.videos.currentImageId = current_id
+        print("Triggered imageId reactive update")
+        
+    except Exception as e:
+      print(f"Error updating video state: {e}")
     
-    # Force a redraw if possible
+    # Force a redraw/refresh event
     try:
+      from js import Event, window
+      
+      # Try to dispatch events to trigger refresh
       if hasattr(img_cvs, 'dispatchEvent'):
-        # Create a custom event to trigger redraw
-        from js import Event
-        redraw_event = Event.new('redraw')
-        img_cvs.dispatchEvent(redraw_event)
-        print("Dispatched redraw event")
+        # Try multiple event types that might trigger refresh
+        event_types = ['redraw', 'update', 'change', 'load']
+        for event_type in event_types:
+          try:
+            event = Event.new(event_type)
+            img_cvs.dispatchEvent(event)
+            print(f"Dispatched {event_type} event to canvas")
+          except:
+            pass
+      
+      # Try window resize event to trigger UI refresh
+      resize_event = Event.new('resize')
+      window.dispatchEvent(resize_event)
+      print("Dispatched window resize event")
+        
     except Exception as redraw_error:
-      print(f"Could not dispatch redraw event: {redraw_error}")
+      print(f"Could not dispatch refresh events: {redraw_error}")
 
     pixels_proxy.destroy()
     pixels_buf.release()
