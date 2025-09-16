@@ -106,45 +106,85 @@ def main(mode='process', method='hist'):
       except Exception as e:
         print(f"Error exploring objects: {e}")
       
-      print("=== TRYING DOM-BASED CANVAS ACCESS ===")
-      # Try to find video canvas in the DOM
+      print("=== EXPLORING CONTEXT.FRAME PROPERTY ===")
+      # The context has a 'frame' property - let's explore it!
+      try:
+        if hasattr(context, 'frame'):
+          frame_obj = context.frame
+          print(f"context.frame exists: {frame_obj is not None}")
+          if frame_obj is not None:
+            print(f"context.frame type: {type(frame_obj)}")
+            
+            # Explore frame object properties
+            if hasattr(frame_obj, 'object_keys'):
+              frame_keys = list(frame_obj.object_keys())
+              print(f"context.frame keys: {frame_keys}")
+            
+            # Check for canvas-like properties on frame
+            frame_props = ['imageData', 'canvas', 'sources', 'data', 'url', 'image']
+            for prop in frame_props:
+              if hasattr(frame_obj, prop):
+                prop_value = getattr(frame_obj, prop)
+                print(f"frame.{prop}: {type(prop_value)}")
+                if hasattr(prop_value, 'width') and hasattr(prop_value, 'height'):
+                  print(f"  -> Found canvas in frame.{prop}! {prop_value.width}x{prop_value.height}")
+                  img_cvs = prop_value
+                  break
+      except Exception as e:
+        print(f"Error exploring context.frame: {e}")
+      
+      print("=== TRYING IMAGE-BASED VIDEO DISPLAY ===")
+      # Video frames might be displayed as <img> elements, not canvas
       try:
         from js import document
         
-        # Look for common video/canvas elements
-        canvas_selectors = [
-          'canvas',
-          'video',
-          '.video-canvas',
-          '.frame-canvas', 
-          '.annotation-canvas',
-          '[data-video-frame]',
-          '.sly-video-canvas',
-          '.image-canvas'
+        # Look for image elements that might contain video frames
+        img_selectors = [
+          'img',
+          '.video-frame',
+          '.frame-image',
+          '.annotation-image',
+          '[data-frame]',
+          '.sly-frame',
+          '.video-display img'
         ]
         
-        for selector in canvas_selectors:
+        for selector in img_selectors:
           try:
             elements = document.querySelectorAll(selector)
-            print(f"Found {len(elements)} elements for '{selector}'")
+            print(f"Found {len(elements)} img elements for '{selector}'")
             
             for i, element in enumerate(elements):
-              if hasattr(element, 'width') and hasattr(element, 'height'):
-                print(f"  Element {i}: {element.tagName} {element.width}x{element.height}")
-                if element.width > 0 and element.height > 0:
-                  # This looks like a valid canvas
-                  img_cvs = element
-                  print(f"    -> Using DOM canvas: {selector}")
-                  break
+              if hasattr(element, 'naturalWidth') and hasattr(element, 'naturalHeight'):
+                print(f"  Image {i}: {element.tagName} {element.naturalWidth}x{element.naturalHeight}")
+                print(f"    -> src: {element.src[:100] if hasattr(element, 'src') else 'No src'}...")
+                
+                # If this is a substantial image, it might be our video frame
+                if element.naturalWidth > 100 and element.naturalHeight > 100:
+                  print(f"    -> Large image found, might be video frame")
+                  # We can't directly get canvas from img, but we can create one
+                  # and copy the image data to it
+                  try:
+                    from js import document
+                    canvas = document.createElement('canvas')
+                    canvas.width = element.naturalWidth
+                    canvas.height = element.naturalHeight
+                    ctx = canvas.getContext('2d')
+                    ctx.drawImage(element, 0, 0)
+                    img_cvs = canvas
+                    print(f"    -> Created canvas from image: {canvas.width}x{canvas.height}")
+                    break
+                  except Exception as canvas_error:
+                    print(f"    -> Error creating canvas from image: {canvas_error}")
             
             if img_cvs is not None:
               break
               
           except Exception as e:
-            print(f"Error with selector '{selector}': {e}")
+            print(f"Error with img selector '{selector}': {e}")
             
       except Exception as e:
-        print(f"Error accessing DOM: {e}")
+        print(f"Error accessing DOM images: {e}")
       
       if img_cvs is None:
         print("ERROR: Could not find video frame canvas anywhere - DOM or API")
