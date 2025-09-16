@@ -165,21 +165,22 @@ def main(mode='process', method='hist'):
         print(f"🎨 Color space: {'LAB' if use_lab else 'Grayscale → BGR'}")
         
         # Process current frame and display in app interface
-        process_and_display_image(video_id, frame_index, method, clip_limit, use_lab)
+        import asyncio
+        asyncio.create_task(process_and_display_image(video_id, frame_index, method, clip_limit, use_lab))
 
     except Exception as e:
         print(f"Error in main function: {str(e)}")
         import traceback
         traceback.print_exc()
 
-def process_and_display_image(video_id, frame_index, method, clip_limit, use_lab):
+async def process_and_display_image(video_id, frame_index, method, clip_limit, use_lab):
     """Download current frame, process it with OpenCV, and display on canvas"""
     try:
         print("🖼️ Starting simple image processing...")
         
         # Step 1: Get current frame from Supervisely
         print("📥 Downloading current frame...")
-        frame_image = get_current_frame(video_id, frame_index)
+        frame_image = await get_current_frame(video_id, frame_index)
         if frame_image is None:
             print("❌ Could not get current frame")
             return False
@@ -212,7 +213,7 @@ def process_and_display_image(video_id, frame_index, method, clip_limit, use_lab
         traceback.print_exc()
         return False
 
-def get_current_frame(video_id, frame_index):
+async def get_current_frame(video_id, frame_index):
     """Get the current frame from Supervisely using direct API access"""
     try:
         print(f"📥 Getting frame {frame_index} from video {video_id}")
@@ -221,9 +222,21 @@ def get_current_frame(video_id, frame_index):
         api = None
         
         try:
-            # Try to import supervisely if available in Pyodide environment
-            import supervisely as sly
-            print("✅ Found supervisely module")
+            # Try to import supervisely - install if not available
+            try:
+                import supervisely as sly
+                print("✅ Found supervisely module")
+            except ImportError:
+                print("📦 Installing supervisely in Pyodide environment...")
+                try:
+                    import micropip
+                    # Install supervisely package
+                    await micropip.install('supervisely')
+                    import supervisely as sly
+                    print("✅ Successfully installed and imported supervisely")
+                except Exception as install_error:
+                    print(f"❌ Failed to install supervisely: {install_error}")
+                    raise ImportError("Could not install supervisely")
             
             # Create API instance directly
             server_address = "https://app.supervisely.com"
@@ -232,8 +245,8 @@ def get_current_frame(video_id, frame_index):
             api = sly.Api(server_address, api_token)
             print("✅ Created Supervisely API instance directly")
             
-        except ImportError:
-            print("📝 supervisely not available in Pyodide environment")
+        except (ImportError, Exception) as e:
+            print(f"📝 supervisely not available in Pyodide environment: {e}")
             # Fallback: try accessing via JavaScript context
             try:
                 from js import slyApp
