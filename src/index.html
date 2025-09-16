@@ -112,15 +112,16 @@
 <sly-card :collapsed="state.CardAutoIdvO0TR.collapsed" :disabled="state.CardAutoIdvO0TR.disabled" :options="data.CardAutoIdvO0TR.options" :subtitle="data.CardAutoIdvO0TR.description" :title="data.CardAutoIdvO0TR.title" style="width: 100%" v-if="!data.CardAutoIdvO0TR.hide" v-loading="data.CardAutoIdvO0TR.loading">
 
 <div>
-  <el-checkbox v-model="state.labCheck" @change="runPythonScriptThrottled()">Apply CLAHE to Lightness exclusively</el-checkbox>
-  <div style="margin-top: 10px;">Clip Limit: {{state.SliderAutoId6MqE3.value}}</div>
-  <el-slider :disabled="data.SliderAutoId6MqE3.disabled" :height="data.SliderAutoId6MqE3.height" :max="data.SliderAutoId6MqE3.max" :min="data.SliderAutoId6MqE3.min" :range="data.SliderAutoId6MqE3.range" :show-input="data.SliderAutoId6MqE3.showInput" :show-input-controls="data.SliderAutoId6MqE3.showInputControls" :show-stops="data.SliderAutoId6MqE3.showStops" :show-tooltip="data.SliderAutoId6MqE3.showTooltip" :step="data.SliderAutoId6MqE3.step" :value="state.SliderAutoId6MqE3.value" :vertical="data.SliderAutoId6MqE3.vertical" @input="state.SliderAutoId6MqE3.value = $event; runPythonScriptThrottled();" style="padding: 20px" v-if="!data.SliderAutoId6MqE3.hide" v-loading="data.SliderAutoId6MqE3.loading">
+  <el-checkbox v-model="state.labCheck" @change="runPythonScriptThrottled('process', 'hist')">Apply to Lightness channel only (LAB)</el-checkbox>
+  <div style="margin-top: 10px;">CLAHE Clip Limit: {{state.SliderAutoId6MqE3.value}} <span style="color: #999; font-size: 0.9em;">(only used for CLAHE)</span></div>
+  <el-slider :disabled="data.SliderAutoId6MqE3.disabled" :height="data.SliderAutoId6MqE3.height" :max="data.SliderAutoId6MqE3.max" :min="data.SliderAutoId6MqE3.min" :range="data.SliderAutoId6MqE3.range" :show-input="data.SliderAutoId6MqE3.showInput" :show-input-controls="data.SliderAutoId6MqE3.showInputControls" :show-stops="data.SliderAutoId6MqE3.showStops" :show-tooltip="data.SliderAutoId6MqE3.showTooltip" :step="data.SliderAutoId6MqE3.step" :value="state.SliderAutoId6MqE3.value" :vertical="data.SliderAutoId6MqE3.vertical" @input="state.SliderAutoId6MqE3.value = $event; runPythonScriptThrottled('process', 'clahe');" style="padding: 20px" v-if="!data.SliderAutoId6MqE3.hide" v-loading="data.SliderAutoId6MqE3.loading">
 </el-slider>
   <div>
     <!-- <el-button type="primary" @click="ee.emit('store-action', { action: 'videos/prevImage'})">prev</el-button> -->
     <!-- <el-button type="primary" @click="ee.emit('store-action', { action: 'videos/nextImage'})">next</el-button> -->
-    <el-button type="primary" @click="runPythonScript()">Apply</el-button>
-    <el-button type="primary" @click="runPythonScript('restore')">Restore</el-button>
+    <el-button type="primary" @click="runPythonScript('process', 'hist')">Apply Histogram Equalization</el-button>
+    <el-button type="success" @click="runPythonScript('process', 'clahe')">Apply CLAHE</el-button>
+    <el-button type="info" @click="runPythonScript('restore')">Restore Frame</el-button>
   </div>
 </div>
 
@@ -206,7 +207,9 @@
         let result;
         const timeStart = performance.now();
 
-        console.log('Applying CLAHE...')
+        const method = params[1] || 'hist';
+        const methodName = method === 'clahe' ? 'CLAHE' : 'Histogram Equalization';
+        console.log(`Applying ${methodName} to current frame...`)
         const fn = pyodide.runPython(mainScriptTxt);
         if (typeof fn === "function") {
           const newParams = params.map(p => pyodide.toPy(p));
@@ -216,7 +219,7 @@
         }
 
         const timeEnd = performance.now();
-        console.log("CLAHE executed in", timeEnd - timeStart, "ms");
+        console.log(`${methodName} frame processing completed in`, timeEnd - timeStart, "ms");
 
         return result;
       }
