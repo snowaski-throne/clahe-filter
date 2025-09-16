@@ -188,7 +188,9 @@ def main(mode='process', method='hist'):
         for i, elem in enumerate(video_elements):
           if hasattr(elem, 'src'):
             print(f"  Video {i}: {elem.src[:100]}...")
-        for i, elem in enumerate(img_elements[:5]):  # Show first 5 images
+        # Convert HTMLCollection to list and take first 5 elements to avoid Pyodide slice error
+        img_list = [img_elements[i] for i in range(min(5, len(img_elements)))]
+        for i, elem in enumerate(img_list):
           if hasattr(elem, 'src'):
             print(f"  Image {i}: {elem.src[:100]}... ({elem.naturalWidth}x{elem.naturalHeight})")
       
