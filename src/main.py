@@ -153,6 +153,35 @@ def main(mode='process'):
     
     # Process CLAHE immediately for images
     process_clahe_with_canvas(img_cvs, img_ctx, app, cur_img, mode)
+    
+    # Also display processed image in our app interface
+    try:
+      print("  🖼️ Displaying processed image in app interface...")
+      from js import document
+      
+      # Convert canvas to data URL
+      processed_data_url = img_cvs.toDataURL('image/png')
+      
+      # Update our display elements
+      display_img = document.getElementById('processed-frame-display')
+      status_div = document.getElementById('processed-frame-status')
+      
+      if display_img and status_div:
+        # Show the processed image
+        display_img.src = processed_data_url
+        display_img.style.display = 'block'  # Make it visible
+        
+        # Update status
+        status_div.textContent = f"✅ Processed image ({img_cvs.width}x{img_cvs.height})"
+        status_div.style.color = '#28a745'  # Green color for success
+        
+        print(f"    ✅ Updated app display with processed image!")
+      else:
+        print(f"    ❌ Could not find display elements in app interface")
+        
+    except Exception as e:
+      print(f"  ❌ Error updating app display: {e}")
+    
     return
   
   elif is_video:
@@ -444,57 +473,32 @@ def main(mode='process'):
               # Continue with CLAHE processing now that frame is loaded
               process_clahe_with_canvas(img_cvs, img_ctx, app, cur_img, mode)
               
-              # After CLAHE processing, try to update the video display
+              # After CLAHE processing, display processed frame in our app interface
               try:
-                print("  🖼️ Attempting to update video display...")
+                print("  🖼️ Displaying processed frame in app interface...")
                 
-                # Strategy 1: Look for img elements that might be displaying the video frame
-                img_elements = document.querySelectorAll('img')
-                video_display_img = None
+                # Convert processed canvas to data URL
+                processed_data_url = temp_canvas.toDataURL('image/png')
                 
-                for img in img_elements:
-                  if img.width > 400 and img.height > 300:  # Look for large images
-                    # Check if src contains video/frame related terms
-                    if hasattr(img, 'src') and any(term in img.src.lower() for term in ['video', 'frame', 'preview']):
-                      print(f"    Found potential video display img: {img.width}x{img.height}")
-                      print(f"      src: {img.src}")
-                      video_display_img = img
-                      break
+                # Update our display elements
+                display_img = document.getElementById('processed-frame-display')
+                status_div = document.getElementById('processed-frame-status')
                 
-                if video_display_img:
-                  # Convert our processed canvas to data URL and update the img src
-                  processed_data_url = temp_canvas.toDataURL('image/png')
-                  video_display_img.src = processed_data_url
-                  print("    ✅ Updated video display img with processed frame!")
+                if display_img and status_div:
+                  # Show the processed image
+                  display_img.src = processed_data_url
+                  display_img.style.display = 'block'  # Make it visible
+                  
+                  # Update status
+                  status_div.textContent = f"✅ Processed frame {context.frame} ({video_width}x{video_height})"
+                  status_div.style.color = '#28a745'  # Green color for success
+                  
+                  print(f"    ✅ Updated app display with processed frame!")
                 else:
-                  print("    ❌ No suitable video display img found")
-                
-                # Strategy 2: Look for canvas elements that might be displaying the video
-                canvas_elements = document.querySelectorAll('canvas')
-                for canvas in canvas_elements:
-                  if canvas.width > 400 and canvas.height > 300:
-                    print(f"    Found potential display canvas: {canvas.width}x{canvas.height}")
-                    try:
-                      # Copy our processed canvas to the display canvas
-                      display_ctx = canvas.getContext('2d')
-                      display_ctx.drawImage(temp_canvas, 0, 0, canvas.width, canvas.height)
-                      print("    ✅ Updated display canvas with processed frame!")
-                      break
-                    except Exception as e:
-                      print(f"    ❌ Could not update canvas: {e}")
-                
-                # Strategy 3: Try to trigger a refresh/update event
-                try:
-                  # Dispatch a custom event that might trigger video player refresh
-                  from js import Event
-                  refresh_event = Event.new('frameupdate')
-                  document.dispatchEvent(refresh_event)
-                  print("    ✅ Dispatched frame update event")
-                except Exception as e:
-                  print(f"    ❌ Could not dispatch event: {e}")
+                  print(f"    ❌ Could not find display elements in app interface")
                   
               except Exception as e:
-                print(f"  ❌ Error updating video display: {e}")
+                print(f"  ❌ Error updating app display: {e}")
               
             except Exception as e:
               print(f"  Error drawing frame to canvas: {e}")
