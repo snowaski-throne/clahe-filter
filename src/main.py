@@ -163,16 +163,52 @@ def main(mode='process'):
       video_keys = [key for key in all_keys if any(term in key.lower() for term in ['video', 'player', 'canvas', 'frame', 'media'])]
       print(f"  Potential video-related keys: {video_keys}")
       
+      # Debug store.state.videos in detail
+      if 'videos' in video_keys:
+        print("\n  DETAILED DEBUG of store.state.videos:")
+        debug_js_object(store.state.videos, "store.state.videos")
+        
+        # Check if videos has current/active properties
+        videos_keys = Object.keys(store.state.videos)
+        print(f"    videos keys: {videos_keys}")
+        
+        for key in videos_keys:
+          try:
+            obj = getattr(store.state.videos, key)
+            print(f"    videos.{key}: {type(obj)}")
+            if str(type(obj)) == "<class 'pyodide.ffi.JsProxy'>" and key in ['current', 'active', 'player', 'canvas']:
+              debug_js_object(obj, f"store.state.videos.{key}")
+          except Exception as e:
+            print(f"    Error accessing videos.{key}: {e}")
+      
       for key in video_keys:
-        try:
-          obj = getattr(store.state, key)
-          print(f"  {key}: {type(obj)}")
-          if hasattr(obj, 'canvas') or hasattr(obj, 'imageData'):
-            debug_js_object(obj, f"store.state.{key}")
-        except Exception as e:
-          print(f"  Error accessing {key}: {e}")
+        if key != 'videos':  # Already handled above
+          try:
+            obj = getattr(store.state, key)
+            print(f"  {key}: {type(obj)}")
+            if hasattr(obj, 'canvas') or hasattr(obj, 'imageData'):
+              debug_js_object(obj, f"store.state.{key}")
+          except Exception as e:
+            print(f"  Error accessing {key}: {e}")
     except Exception as e:
       print(f"Error searching store.state: {e}")
+    
+    # 2b. Check for video elements in DOM (not canvas)
+    try:
+      print(f"\n2b. Checking for <video> elements in DOM:")
+      video_elements = document.querySelectorAll('video')
+      print(f"  Found {len(video_elements)} video elements:")
+      
+      for i, video in enumerate(video_elements):
+        print(f"    Video {i}: {video.videoWidth}x{video.videoHeight}, currentTime={video.currentTime}")
+        print(f"      src: {video.src}")
+        print(f"      readyState: {video.readyState}")
+        
+        # Try to create a canvas from the video
+        if video.videoWidth > 0 and video.videoHeight > 0:
+          print(f"      ^ This video element has dimensions and might be our target!")
+    except Exception as e:
+      print(f"Error checking video elements: {e}")
     
     # 3. Look for canvas-related properties on the app object
     try:
