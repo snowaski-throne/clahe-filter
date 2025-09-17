@@ -415,19 +415,14 @@ def main(mode='process'):
           else:
             print(f"    ❌ No frame pattern found in URL!")
           
-          # Strategy 1: Try to get original full resolution (remove resize parameters completely)
-          url_original_full = re.sub(r'/resize:fill:\d+:\d+:\d+', '', preview_url)
-          if url_original_full != preview_url:
-            frame_urls_to_try.append(("original_full_res", url_original_full))
-          
-          # Strategy 2: High resolution with correct frame
+          # Strategy 1: High resolution with correct frame (PRIORITIZE FRAME-AWARE STRATEGIES)
           url_high_res = preview_url.replace('resize:fill:150:0:0', f'resize:fill:{video_width}:{video_height}:0')
           if match:
             # Try both frame indexing strategies at high resolution
             quality = match.group(1)
             original_frame_num = int(match.group(2))
             
-            # 1-indexed frame at high res
+            # 1-indexed frame at high res (try this first)
             new_frame_1indexed = current_frame + 1
             url_high_1indexed = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame_1indexed}/', url_high_res)
             frame_urls_to_try.append(("high_res_1indexed", url_high_1indexed))
@@ -438,16 +433,18 @@ def main(mode='process'):
             url_high_0indexed = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame_0indexed}/', url_high_res)
             frame_urls_to_try.append(("high_res_0indexed", url_high_0indexed))
             print(f"    Generated 0-indexed URL: {original_frame_num} -> {new_frame_0indexed}")
+            
+            # Strategy 2: Full resolution with correct frame (remove resize but keep frame changes)
+            url_full_res_1indexed = re.sub(r'/resize:fill:\d+:\d+:\d+', '', url_high_1indexed)
+            url_full_res_0indexed = re.sub(r'/resize:fill:\d+:\d+:\d+', '', url_high_0indexed)
+            frame_urls_to_try.append(("full_res_1indexed", url_full_res_1indexed))
+            frame_urls_to_try.append(("full_res_0indexed", url_full_res_0indexed))
           else:
             # Just high resolution with original frame
             frame_urls_to_try.append(("high_resolution", url_high_res))
           
-          # Strategy 3: Try even higher resolution (original video dimensions or larger)
-          url_max_res = preview_url.replace('resize:fill:150:0:0', f'resize:fill:1920:1080:0')
-          frame_urls_to_try.append(("max_resolution", url_max_res))
-          
-          # Strategy 4: Fallback to original low-res (last resort)
-          frame_urls_to_try.append(("original_low_res", preview_url))
+          # Strategy 3: Fallback to original low-res (last resort - same frame always)
+          frame_urls_to_try.append(("original_low_res_fallback", preview_url))
           
           # Try each URL until one works
           print(f"  Will try {len(frame_urls_to_try)} URL strategies:")
@@ -519,7 +516,7 @@ def main(mode='process'):
               print(f"  Error drawing frame to canvas: {e}")
           
           def on_frame_error(event=None):
-            nonlocal current_strategy_index
+            nonlocal current_strategy_index, current_frame
             current_strategy_index += 1
             
             if current_strategy_index < len(frame_urls_to_try):
