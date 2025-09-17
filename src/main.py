@@ -145,8 +145,8 @@ def main(mode='process'):
   if has_sources:
     # Handle images - use existing logic
     print("Processing as IMAGE")
-    img_src = cur_img.sources[0]
-    img_cvs = img_src.imageData
+  img_src = cur_img.sources[0]
+  img_cvs = img_src.imageData
     img_ctx = img_cvs.getContext("2d")
     print(f"Image canvas: {img_cvs.width}x{img_cvs.height}")
     
@@ -322,7 +322,7 @@ def main(mode='process'):
                 print(f"    ❌ Frame source has no imageData")
             else:
               print(f"    ❌ Frame sources is empty")
-          else:
+  else:
             print(f"    ❌ Frame has no sources property")
             # Debug what the frame object does have
             try:
@@ -415,6 +415,20 @@ def main(mode='process'):
           else:
             print(f"    ❌ No frame pattern found in URL!")
           
+          # Check video metadata for frame information
+          try:
+            print(f"  📊 Video metadata analysis:")
+            print(f"    fileMeta.framesCount: {cur_img.fileMeta.framesCount}")
+            print(f"    fileMeta.duration: {cur_img.fileMeta.duration}")
+            if hasattr(cur_img.fileMeta, 'framesToTimecodes'):
+              timecodes = cur_img.fileMeta.framesToTimecodes
+              print(f"    framesToTimecodes length: {len(timecodes) if hasattr(timecodes, '__len__') else 'unknown'}")
+              if hasattr(timecodes, '__len__') and len(timecodes) > current_frame:
+                current_timecode = timecodes[current_frame]
+                print(f"    Frame {current_frame} timecode: {current_timecode}")
+          except Exception as e:
+            print(f"    Error analyzing video metadata: {e}")
+          
           # Strategy 1: High resolution with correct frame (PRIORITIZE FRAME-AWARE STRATEGIES)
           url_high_res = preview_url.replace('resize:fill:150:0:0', f'resize:fill:{video_width}:{video_height}:0')
           if match:
@@ -439,11 +453,25 @@ def main(mode='process'):
             url_full_res_0indexed = re.sub(r'/resize:fill:\d+:\d+:\d+', '', url_high_0indexed)
             frame_urls_to_try.append(("full_res_1indexed", url_full_res_1indexed))
             frame_urls_to_try.append(("full_res_0indexed", url_full_res_0indexed))
+            
+            # Strategy 3: Try using timecode instead of frame number (experimental)
+            try:
+              if hasattr(cur_img.fileMeta, 'framesToTimecodes'):
+                timecodes = cur_img.fileMeta.framesToTimecodes
+                if hasattr(timecodes, '__len__') and len(timecodes) > current_frame:
+                  current_timecode = timecodes[current_frame]
+                  # Convert timecode to a format that might work in URL (remove decimal)
+                  timecode_int = int(current_timecode * 1000)  # Convert to milliseconds
+                  url_timecode = re.sub(frame_pattern, f'videoframe/{quality}/{timecode_int}/', url_high_res)
+                  frame_urls_to_try.append(("timecode_based", url_timecode))
+                  print(f"    Generated timecode URL: {current_timecode}s -> {timecode_int}ms")
+            except Exception as e:
+              print(f"    Could not generate timecode URL: {e}")
           else:
             # Just high resolution with original frame
             frame_urls_to_try.append(("high_resolution", url_high_res))
           
-          # Strategy 3: Fallback to original low-res (last resort - same frame always)
+          # Strategy 4: Fallback to original low-res (last resort - same frame always)
           frame_urls_to_try.append(("original_low_res_fallback", preview_url))
           
           # Try each URL until one works
@@ -463,6 +491,9 @@ def main(mode='process'):
           temp_canvas.height = video_height
           temp_ctx = temp_canvas.getContext('2d')
           
+          # Store pattern for callback access
+          pattern_for_callback = frame_pattern
+          
           # Create image element to load the frame
           frame_img = document.createElement('img')
           frame_img.crossOrigin = 'anonymous'  # Allow cross-origin for processing
@@ -472,6 +503,31 @@ def main(mode='process'):
             successful_url = frame_urls_to_try[current_strategy_index][1]
             print(f"  ✅ Frame image loaded successfully using strategy: {strategy_name}")
             print(f"  ✅ Successful URL: {successful_url}")
+            
+            # Check what frame number is actually in the successful URL
+            url_frame_match = re.search(pattern_for_callback, successful_url)
+            url_frame_num = url_frame_match.group(2) if url_frame_match else 'NOT FOUND'
+            print(f"  🔍 DEBUGGING: Expected frame {current_frame}, URL contains frame: {url_frame_num}")
+            
+            # Calculate a simple hash of the image to see if frames are actually different
+            try:
+              # Get a small sample of pixel data to create a "fingerprint"
+              sample_data = frame_img.width * frame_img.height
+              print(f"  🖼️ Image fingerprint: {frame_img.width}x{frame_img.height} = {sample_data} pixels")
+              
+              # Store this info for comparison
+              if not hasattr(frame_img, '_frame_fingerprints'):
+                frame_img._frame_fingerprints = {}
+              frame_img._frame_fingerprints[current_frame] = sample_data
+              
+              # Check if we've seen this exact same fingerprint before on a different frame
+              for prev_frame, prev_fingerprint in frame_img._frame_fingerprints.items():
+                if prev_frame != current_frame and prev_fingerprint == sample_data:
+                  print(f"  ⚠️ WARNING: Frame {current_frame} has same fingerprint as frame {prev_frame} - likely same image!")
+              
+            except Exception as e:
+              print(f"  ❌ Error calculating image fingerprint: {e}")
+            
             try:
               # Draw the frame to our canvas
               temp_ctx.drawImage(frame_img, 0, 0, video_width, video_height)
