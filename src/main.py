@@ -49,6 +49,71 @@ def debug_js_object(obj, name="object"):
   
   print(f"=== END DEBUG {name} ===\n")
 
+def process_clahe_with_canvas(img_cvs, img_ctx, app, cur_img, mode='process'):
+  """Apply CLAHE processing to the given canvas"""
+  try:
+    print(f"\n🎨 Starting CLAHE processing on {img_cvs.width}x{img_cvs.height} canvas...")
+    
+    context = app.context
+    state = app.state
+    
+    if state.imagePixelsDataImageId != context.imageId:
+      img_data = img_ctx.getImageData(0, 0, img_cvs.width, img_cvs.height).data
+
+      # reshape flat array of rgba to numpy
+      state.imagePixelsData = np.array(img_data, dtype=np.uint8).reshape(img_cvs.height, img_cvs.width, 4)
+      state.imagePixelsDataImageId = context.imageId
+
+    new_img_data = None
+    img_arr = state.imagePixelsData
+
+    if mode == 'restore':
+      new_img_data = img_arr.flatten()
+    else:
+      clip_limit = state.SliderAutoId6MqE3.value
+      clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
+
+      if state.labCheck is False:
+        img_gray = cv2.cvtColor(img_arr, cv2.COLOR_RGBA2GRAY)
+        cl_img_gray = clahe.apply(img_gray)
+        cl_img_rgb = cv2.cvtColor(cl_img_gray, cv2.COLOR_GRAY2RGB)
+      else:
+        img_lab = cv2.cvtColor(img_arr, cv2.COLOR_RGB2LAB)
+
+        lab_planes = list(cv2.split(img_lab))
+        lab_planes[0] = clahe.apply(lab_planes[0])
+        img_lab = cv2.merge(lab_planes)
+
+        cl_img_rgb = cv2.cvtColor(img_lab, cv2.COLOR_LAB2RGB)
+        
+      alpha_channel = img_arr[:, :, 3]
+      cl_img = np.dstack((cl_img_rgb, alpha_channel))
+
+      new_img_data = cl_img.flatten().astype(np.uint8)
+
+    pixels_proxy = create_proxy(new_img_data)
+    pixels_buf = pixels_proxy.getBuffer("u8clamped")
+    new_img_data = ImageData.new(pixels_buf.data, img_cvs.width, img_cvs.height)
+
+    img_ctx.putImageData(new_img_data, 0, 0)
+    
+    # For images, increment version to trigger refresh
+    try:
+      img_src = cur_img.sources[0] if hasattr(cur_img, 'sources') and cur_img.sources else None
+      if img_src:
+        img_src.version += 1
+        print("  ✅ Image version incremented for refresh")
+    except:
+      print("  ℹ️ No image version to increment (video processing)")
+
+    pixels_proxy.destroy()
+    pixels_buf.release()
+    
+    print("  ✅ CLAHE processing completed successfully!")
+    
+  except Exception as e:
+    print(f"  ❌ Error in CLAHE processing: {e}")
+
 def main(mode='process'):
   app = slyApp.app
   store = slyApp.store
@@ -85,6 +150,10 @@ def main(mode='process'):
     img_cvs = img_src.imageData
     img_ctx = img_cvs.getContext("2d")
     print(f"Image canvas: {img_cvs.width}x{img_cvs.height}")
+    
+    # Process CLAHE immediately for images
+    process_clahe_with_canvas(img_cvs, img_ctx, app, cur_img, mode)
+    return
   
   elif is_video:
     # Handle videos - look for direct canvas access like images
@@ -241,13 +310,35 @@ def main(mode='process'):
         # Videos have preview URLs like: "https://app.supervisely.com/previews/.../videoframe/33p/1/174515916?..."
         frame_url = None
         if hasattr(cur_img, 'preview'):
-          # Modify preview URL to get specific frame
           preview_url = cur_img.preview
           print(f"  Base preview URL: {preview_url}")
           
-          # The preview URL contains frame info, we might be able to modify it for current frame
-          # For now, try using the existing preview URL
-          frame_url = preview_url
+          # Modify URL for current frame and full resolution
+          current_frame = context.frame
+          
+          # Replace resolution (150:0:0) with video dimensions (480:360)
+          # Replace frame number with current frame
+          modified_url = preview_url
+          
+          # Fix resolution - replace resize:fill:150:0:0 with actual video dimensions
+          if 'resize:fill:150:0:0' in modified_url:
+            modified_url = modified_url.replace('resize:fill:150:0:0', f'resize:fill:{video_width}:{video_height}:0')
+          
+          # Try to adjust frame number - the URL might have format like videoframe/33p/1/
+          # We need to replace the frame number (1) with current_frame
+          import re
+          frame_pattern = r'videoframe/([^/]+)/(\d+)/'
+          match = re.search(frame_pattern, modified_url)
+          if match:
+            quality = match.group(1)  # e.g., "33p"
+            original_frame = match.group(2)  # e.g., "1"
+            # Replace with current frame (add 1 since frames might be 1-indexed)
+            new_frame = current_frame + 1
+            modified_url = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame}/', modified_url)
+            print(f"  Adjusted frame from {original_frame} to {new_frame} for context.frame={current_frame}")
+          
+          frame_url = modified_url
+          print(f"  Modified URL: {frame_url}")
         
         if frame_url:
           print(f"  Using frame URL: {frame_url}")
@@ -270,27 +361,26 @@ def main(mode='process'):
               print("  Frame drawn to canvas!")
               
               # Set up for CLAHE processing
-              nonlocal img_cvs, img_ctx
               img_cvs = temp_canvas
               img_ctx = temp_ctx
               print("  Canvas ready for CLAHE processing!")
+              
+              # Continue with CLAHE processing now that frame is loaded
+              process_clahe_with_canvas(img_cvs, img_ctx, app, cur_img, mode)
               
             except Exception as e:
               print(f"  Error drawing frame to canvas: {e}")
           
           def on_frame_error():
-            print("  Error loading frame image")
+            print("  ❌ Error loading frame image - cannot process video")
           
           # Set up image loading
           frame_img.onload = on_frame_loaded
           frame_img.onerror = on_frame_error
           frame_img.src = frame_url
           
-          # Note: This is asynchronous - the frame will load after we return
-          # For now, we'll set up with empty canvas
-          img_cvs = temp_canvas
-          img_ctx = temp_ctx
-          print("  Canvas created, frame loading...")
+          print("  Canvas created, waiting for frame to load...")
+          return  # Exit here - processing continues in onload callback
           
         else:
           print("❌ No frame URL available")
@@ -303,50 +393,5 @@ def main(mode='process'):
   else:
     print("ERROR: Unknown media type - neither image nor video format recognized")
     return
-
-  if state.imagePixelsDataImageId != context.imageId:
-    img_data = img_ctx.getImageData(0, 0, img_cvs.width, img_cvs.height).data
-
-    # reshape flat array of rgba to numpy
-    state.imagePixelsData = np.array(img_data, dtype=np.uint8).reshape(img_cvs.height, img_cvs.width, 4)
-    state.imagePixelsDataImageId = context.imageId
-
-
-  new_img_data = None
-  img_arr = state.imagePixelsData
-
-  if mode == 'restore':
-    new_img_data = img_arr.flatten()
-  else:
-    clip_limit = state.SliderAutoId6MqE3.value
-    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
-
-    if state.labCheck is False:
-      img_gray = cv2.cvtColor(img_arr, cv2.COLOR_RGBA2GRAY)
-      cl_img_gray = clahe.apply(img_gray)
-      cl_img_rgb = cv2.cvtColor(cl_img_gray, cv2.COLOR_GRAY2RGB)
-    else:
-      img_lab = cv2.cvtColor(img_arr, cv2.COLOR_RGB2LAB)
-
-      lab_planes = list(cv2.split(img_lab))
-      lab_planes[0] = clahe.apply(lab_planes[0])
-      img_lab = cv2.merge(lab_planes)
-
-      cl_img_rgb = cv2.cvtColor(img_lab, cv2.COLOR_LAB2RGB)
-      
-    alpha_channel = img_arr[:, :, 3]
-    cl_img = np.dstack((cl_img_rgb, alpha_channel))
-
-    new_img_data = cl_img.flatten().astype(np.uint8)
-
-  pixels_proxy = create_proxy(new_img_data)
-  pixels_buf = pixels_proxy.getBuffer("u8clamped")
-  new_img_data = ImageData.new(pixels_buf.data, img_cvs.width, img_cvs.height)
-
-  img_ctx.putImageData(new_img_data, 0, 0)
-  img_src.version += 1
-
-  pixels_proxy.destroy()
-  pixels_buf.release()
 
 main
