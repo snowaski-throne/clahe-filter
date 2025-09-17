@@ -91,49 +91,78 @@ def main(mode='process'):
     print("Processing as VIDEO")
     print("Searching for video frame canvas...")
     
-    # 1. Check DOM for canvas elements (including detailed styling info)
+    # 1. Robust canvas detection with retries and timing
     try:
-      from js import document
-      video_canvases = document.querySelectorAll('canvas')
-      print(f"\n1. Found {len(video_canvases)} canvas elements in DOM:")
+      from js import document, setTimeout, Promise
+      import asyncio
       
-      video_frame_canvas = None
-      video_frame_ctx = None
-      
-      for i, canvas in enumerate(video_canvases):
-        if canvas.width > 0 and canvas.height > 0:
-          print(f"  Canvas {i}: {canvas.width}x{canvas.height}, id='{canvas.id}', class='{canvas.className}'")
-          print(f"    Style: {canvas.style.cssText}")
-          
-          # Check if this canvas might be the video player (look for large dimensions)
-          ctx = canvas.getContext("2d")
-          img_data = ctx.getImageData(0, 0, min(10, canvas.width), min(10, canvas.height))
-          has_data = any(img_data.data)
-          print(f"    Has image data: {has_data}")
-          
-          # Look for video player canvas characteristics
-          if (canvas.width > 1000 and canvas.height > 1000) or ('position: absolute' in canvas.style.cssText):
-            print(f"    ^ This looks like the video player canvas!")
-            video_frame_canvas = canvas
-            video_frame_ctx = ctx
+      def find_video_canvas():
+        """Search for video canvas with detailed logging"""
+        all_canvases = document.querySelectorAll('canvas')
+        print(f"  Searching {len(all_canvases)} canvas elements...")
+        
+        for i, canvas in enumerate(all_canvases):
+          print(f"    Canvas {i}: {canvas.width}x{canvas.height}")
+          if canvas.width > 0 and canvas.height > 0:
+            print(f"      id='{canvas.id}', class='{canvas.className}'")
+            print(f"      style: {canvas.style.cssText}")
             
+            # Check for video player characteristics
+            is_large = canvas.width > 1000 and canvas.height > 1000
+            has_absolute_position = 'position: absolute' in canvas.style.cssText
+            has_negative_z = 'z-index: -1' in canvas.style.cssText
+            
+            print(f"      large_dims: {is_large}, absolute_pos: {has_absolute_position}, negative_z: {has_negative_z}")
+            
+            if is_large or has_absolute_position or has_negative_z:
+              print(f"      ^ FOUND VIDEO CANVAS! {canvas.width}x{canvas.height}")
+              return canvas
+        return None
+      
+      # Try immediate search
+      print(f"\n1. Searching for video canvas (attempt 1):")
+      video_frame_canvas = find_video_canvas()
+      
+      # If not found, wait a bit and try again
+      if not video_frame_canvas:
+        print(f"\n1b. Canvas not found immediately, waiting 100ms and trying again...")
+        import time
+        time.sleep(0.1)  # Wait 100ms
+        video_frame_canvas = find_video_canvas()
+      
+      # Try looking in all possible containers
+      if not video_frame_canvas:
+        print(f"\n1c. Searching in all container elements...")
+        containers = document.querySelectorAll('div, section, article, main')
+        for container in containers:
+          canvases_in_container = container.querySelectorAll('canvas')
+          if len(canvases_in_container) > 0:
+            print(f"    Found {len(canvases_in_container)} canvases in container")
+            for canvas in canvases_in_container:
+              if canvas.width > 500:  # Lower threshold
+                print(f"      Found large canvas: {canvas.width}x{canvas.height}")
+                video_frame_canvas = canvas
+                break
+            if video_frame_canvas:
+              break
+              
       if video_frame_canvas:
         print(f"\n🎯 FOUND VIDEO FRAME CANVAS!")
         print(f"  Dimensions: {video_frame_canvas.width}x{video_frame_canvas.height}")
         print(f"  Style: {video_frame_canvas.style.cssText}")
-        print("  This is our video equivalent of img_src.imageData!")
         
         # Use this canvas for CLAHE processing
         img_cvs = video_frame_canvas
-        img_ctx = video_frame_ctx
+        img_ctx = video_frame_canvas.getContext("2d")
         print("  Setting up for CLAHE processing...")
         
       else:
-        print("❌ No suitable video frame canvas found")
+        print("❌ Still no video frame canvas found after extensive search")
+        print("❌ The canvas might be created dynamically or in a different context")
         return
         
     except Exception as e:
-      print(f"Error checking DOM canvases: {e}")
+      print(f"Error in canvas detection: {e}")
       return
     
     # Continue to CLAHE processing now that we have the video canvas
