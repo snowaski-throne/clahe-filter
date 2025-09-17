@@ -64,54 +64,10 @@ def main(mode='process'):
   # eventData.payload = {}
   # appEventEmitter.emit('store-action', eventData)
 
-  # Debug comprehensive object information
-  debug_js_object(store, "store")
-  debug_js_object(store.state, "store.state")
-  debug_js_object(store.state.videos, "store.state.videos")
-  debug_js_object(context, "context")
-  debug_js_object(state, "state")
-  
-  print(f"context.imageId: {context.imageId}")
-  
-  # Try to debug store.state.videos.all if it exists
-  try:
-    debug_js_object(store.state.videos.all, "store.state.videos.all")
-  except Exception as e:
-    print(f"Error accessing store.state.videos.all: {e}")
-  
   cur_img = getattr(store.state.videos.all, str(context.imageId))
   
-  # Debug the current image object
-  debug_js_object(cur_img, "cur_img")
-  
-  # Debug frames object for videos
-  try:
-    debug_js_object(cur_img.frames, "cur_img.frames")
-  except Exception as e:
-    print(f"Error accessing cur_img.frames: {e}")
-  
-  # Check context for frame information
-  print(f"\nContext frameIndex: {getattr(context, 'frameIndex', 'NOT FOUND')}")
-  print(f"Context currentFrame: {getattr(context, 'currentFrame', 'NOT FOUND')}")
-  
-  # Look for frame-related data in context
-  try:
-    debug_js_object(context, "context_detailed")
-  except Exception as e:
-    print(f"Error debugging context: {e}")
-  
-  # Check if there's frame data in store.state
-  try:
-    frame_keys = [key for key in Object.keys(store.state) if 'frame' in key.lower()]
-    print(f"Store.state keys containing 'frame': {frame_keys}")
-    
-    for key in frame_keys:
-      try:
-        debug_js_object(getattr(store.state, key), f"store.state.{key}")
-      except Exception as e:
-        print(f"Error accessing store.state.{key}: {e}")
-  except Exception as e:
-    print(f"Error checking store.state for frame data: {e}")
+  print(f"Processing media ID: {context.imageId}")
+  print(f"Current frame: {context.frame}")
   
   # Check if this is a video or image and handle accordingly
   has_sources = hasattr(cur_img, 'sources') and cur_img.sources and len(cur_img.sources) > 0
@@ -126,127 +82,61 @@ def main(mode='process'):
     # Handle images - use existing logic
     print("Processing as IMAGE")
     img_src = cur_img.sources[0]
-    debug_js_object(img_src, "img_src")
-    
     img_cvs = img_src.imageData
-    debug_js_object(img_cvs, "img_cvs")
-
     img_ctx = img_cvs.getContext("2d")
-    debug_js_object(img_ctx, "img_ctx")
+    print(f"Image canvas: {img_cvs.width}x{img_cvs.height}")
   
   elif is_video:
     # Handle videos - need to find current frame canvas
     print("Processing as VIDEO")
     print("Searching for video frame canvas...")
     
-    # 1. Check DOM for canvas elements
+    # 1. Check DOM for canvas elements (including detailed styling info)
     try:
       from js import document
       video_canvases = document.querySelectorAll('canvas')
       print(f"\n1. Found {len(video_canvases)} canvas elements in DOM:")
       
+      video_frame_canvas = None
+      video_frame_ctx = None
+      
       for i, canvas in enumerate(video_canvases):
         if canvas.width > 0 and canvas.height > 0:
           print(f"  Canvas {i}: {canvas.width}x{canvas.height}, id='{canvas.id}', class='{canvas.className}'")
-          # Check if this canvas might be the video player
+          print(f"    Style: {canvas.style.cssText}")
+          
+          # Check if this canvas might be the video player (look for large dimensions)
           ctx = canvas.getContext("2d")
           img_data = ctx.getImageData(0, 0, min(10, canvas.width), min(10, canvas.height))
           has_data = any(img_data.data)
           print(f"    Has image data: {has_data}")
+          
+          # Look for video player canvas characteristics
+          if (canvas.width > 1000 and canvas.height > 1000) or ('position: absolute' in canvas.style.cssText):
+            print(f"    ^ This looks like the video player canvas!")
+            video_frame_canvas = canvas
+            video_frame_ctx = ctx
+            
+      if video_frame_canvas:
+        print(f"\n🎯 FOUND VIDEO FRAME CANVAS!")
+        print(f"  Dimensions: {video_frame_canvas.width}x{video_frame_canvas.height}")
+        print(f"  Style: {video_frame_canvas.style.cssText}")
+        print("  This is our video equivalent of img_src.imageData!")
+        
+        # Use this canvas for CLAHE processing
+        img_cvs = video_frame_canvas
+        img_ctx = video_frame_ctx
+        print("  Setting up for CLAHE processing...")
+        
+      else:
+        print("❌ No suitable video frame canvas found")
+        return
+        
     except Exception as e:
       print(f"Error checking DOM canvases: {e}")
+      return
     
-    # 2. Search store.state for video player objects
-    try:
-      print(f"\n2. Searching store.state for video/player objects:")
-      all_keys = Object.keys(store.state)
-      video_keys = [key for key in all_keys if any(term in key.lower() for term in ['video', 'player', 'canvas', 'frame', 'media'])]
-      print(f"  Potential video-related keys: {video_keys}")
-      
-      # Debug store.state.videos in detail
-      if 'videos' in video_keys:
-        print("\n  DETAILED DEBUG of store.state.videos:")
-        debug_js_object(store.state.videos, "store.state.videos")
-        
-        # Check if videos has current/active properties
-        videos_keys = Object.keys(store.state.videos)
-        print(f"    videos keys: {videos_keys}")
-        
-        for key in videos_keys:
-          try:
-            obj = getattr(store.state.videos, key)
-            print(f"    videos.{key}: {type(obj)}")
-            if str(type(obj)) == "<class 'pyodide.ffi.JsProxy'>" and key in ['current', 'active', 'player', 'canvas']:
-              debug_js_object(obj, f"store.state.videos.{key}")
-          except Exception as e:
-            print(f"    Error accessing videos.{key}: {e}")
-      
-      for key in video_keys:
-        if key != 'videos':  # Already handled above
-          try:
-            obj = getattr(store.state, key)
-            print(f"  {key}: {type(obj)}")
-            if hasattr(obj, 'canvas') or hasattr(obj, 'imageData'):
-              debug_js_object(obj, f"store.state.{key}")
-          except Exception as e:
-            print(f"  Error accessing {key}: {e}")
-    except Exception as e:
-      print(f"Error searching store.state: {e}")
-    
-    # 2b. Check for video elements in DOM (not canvas)
-    try:
-      print(f"\n2b. Checking for <video> elements in DOM:")
-      video_elements = document.querySelectorAll('video')
-      print(f"  Found {len(video_elements)} video elements:")
-      
-      for i, video in enumerate(video_elements):
-        print(f"    Video {i}: {video.videoWidth}x{video.videoHeight}, currentTime={video.currentTime}")
-        print(f"      src: {video.src}")
-        print(f"      readyState: {video.readyState}")
-        
-        # Try to create a canvas from the video
-        if video.videoWidth > 0 and video.videoHeight > 0:
-          print(f"      ^ This video element has dimensions and might be our target!")
-    except Exception as e:
-      print(f"Error checking video elements: {e}")
-    
-    # 3. Look for canvas-related properties on the app object
-    try:
-      print(f"\n3. Searching app for canvas/video objects:")
-      app_keys = Object.keys(app)
-      canvas_keys = [key for key in app_keys if any(term in key.lower() for term in ['canvas', 'video', 'player', 'media'])]
-      print(f"  Potential canvas-related app keys: {canvas_keys}")
-      
-      for key in canvas_keys:
-        try:
-          obj = getattr(app, key)
-          print(f"  app.{key}: {type(obj)}")
-          if str(type(obj)) == "<class 'pyodide.ffi.JsProxy'>":
-            debug_js_object(obj, f"app.{key}")
-        except Exception as e:
-          print(f"  Error accessing app.{key}: {e}")
-    except Exception as e:
-      print(f"Error searching app: {e}")
-    
-    # 4. Check the video object for any canvas-related properties
-    try:
-      print(f"\n4. Detailed search in cur_img for canvas properties:")
-      all_props = dir(cur_img)
-      canvas_props = [prop for prop in all_props if any(term in prop.lower() for term in ['canvas', 'image', 'source', 'data', 'element'])]
-      print(f"  Canvas-related properties: {canvas_props}")
-      
-      for prop in canvas_props:
-        try:
-          value = getattr(cur_img, prop)
-          print(f"  cur_img.{prop}: {type(value)} = {value}")
-          if hasattr(value, 'getContext'):
-            print(f"    ^ This looks like a canvas!")
-        except Exception as e:
-          print(f"  Error accessing cur_img.{prop}: {e}")
-    except Exception as e:
-      print(f"Error searching cur_img properties: {e}")
-    
-    return  # Exit for now until we figure out video frame access
+    # Continue to CLAHE processing now that we have the video canvas
     
   else:
     print("ERROR: Unknown media type - neither image nor video format recognized")
