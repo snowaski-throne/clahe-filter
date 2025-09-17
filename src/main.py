@@ -2,7 +2,6 @@ from js import ImageData, Object, slyApp, JSON, Date
 from pyodide.ffi import create_proxy
 import numpy as np
 import cv2
-import supervisely as sly
 
 
 def dump(obj):
@@ -50,51 +49,38 @@ def debug_js_object(obj, name="object"):
   
   print(f"=== END DEBUG {name} ===\n")
 
-def get_video_frame_using_api(video_id, frame_index, api_instance):
-  """Get actual video frame data using Supervisely VideoAnnotation API"""
+def get_video_frame_using_js_api(video_id, frame_index, app_context):
+  """Get actual video frame data using JavaScript API (client-side)"""
   try:
-    print(f"  🔄 Fetching frame {frame_index} using VideoAnnotation API...")
+    print(f"  🔄 Fetching frame {frame_index} using JavaScript API...")
     
-    # Download video annotation (contains frame metadata)
-    ann_json = api_instance.video.annotation.download(video_id)
+    from js import fetch, Response
     
-    # Get project meta for VideoAnnotation conversion
-    video_info = api_instance.video.get_info_by_id(video_id)
-    project_id = video_info.project_id
-    project_meta = sly.ProjectMeta.from_json(api_instance.project.get_meta(project_id))
-    
-    # Convert to VideoAnnotation object
-    ann = sly.VideoAnnotation.from_json(ann_json, project_meta, key_id_map=sly.KeyIdMap())
-    
-    print(f"    ✅ Video annotation loaded: {len(ann.figures)} figures")
-    
-    # Method 1: Try to get frame image directly from API
+    # Try to access frame through client-side API
     try:
-      # Get frame image from video
-      frame_image_np = api_instance.video.frame.download_np(video_id, frame_index)
-      print(f"    ✅ Downloaded frame {frame_index} as numpy array: {frame_image_np.shape}")
-      return frame_image_np, True
+      # Method 1: Check if slyApp has direct frame access
+      if hasattr(slyApp, 'api') and hasattr(slyApp.api, 'video'):
+        print(f"    🎯 Found slyApp.api.video - attempting frame download...")
+        # This would be the ideal case for client-side API access
+        return None, False  # For now, return False since we need to test the API structure
       
+      # Method 2: Check if app context provides frame access  
+      elif hasattr(app_context, 'api'):
+        print(f"    🎯 Found app context API - checking capabilities...")
+        return None, False
+      
+      # Method 3: Use JavaScript fetch to get frame data
+      else:
+        print(f"    🌐 Attempting direct frame URL access...")
+        # For client-side apps, frame access might be through URLs or existing context
+        return None, False
+        
     except Exception as e:
-      print(f"    ❌ Could not download frame directly: {e}")
-    
-    # Method 2: Try alternative frame access methods
-    try:
-      # Check if frame has associated image entities
-      for figure in ann.figures:
-        if figure.frame_index == frame_index:
-          print(f"    Found figure at frame {frame_index}: {figure.video_object.obj_class.name}")
-          # Could potentially extract frame data from figure metadata
-      
-      print(f"    ⚠️ Frame {frame_index} annotation available but no direct image access")
-      return None, False
-      
-    except Exception as e:
-      print(f"    ❌ Error accessing frame annotation: {e}")
+      print(f"    ❌ JavaScript API access failed: {e}")
       return None, False
     
   except Exception as e:
-    print(f"  ❌ Error in VideoAnnotation API access: {e}")
+    print(f"  ❌ Error in JavaScript API access: {e}")
     return None, False
 
 def process_histogram_equalization_with_canvas(img_cvs, img_ctx, app, cur_img, mode='process'):
@@ -374,52 +360,16 @@ def main(mode='process'):
         print("❌ Could not find video player elements in DOM")
         print("🔄 Attempting VideoAnnotation API access...")
         
-        # Try to access frame using Supervisely VideoAnnotation API
+        # Try to access frame using client-side JavaScript API
         try:
-          # Initialize Supervisely API
-          print("  Initializing Supervisely API...")
-          
-          # Get API credentials from app context or environment
-          api = None
-          try:
-            # Method 1: Try to get API from Supervisely app context
-            if hasattr(slyApp, 'api'):
-              api = slyApp.api
-              print("    ✅ Using API from slyApp.api")
-            elif hasattr(app, 'api'):
-              api = app.api
-              print("    ✅ Using API from app.api")
-            elif hasattr(context, 'api'):
-              api = context.api
-              print("    ✅ Using API from context.api")
-            
-            # Method 2: Try global supervisely API access for client-side apps
-            elif hasattr(slyApp, 'g') and hasattr(slyApp.g, 'api'):
-              api = slyApp.g.api
-              print("    ✅ Using global API from slyApp.g.api")
-            
-            # Method 3: Initialize API with hardcoded credentials
-            else:
-              # Hardcoded Supervisely API credentials
-              SERVER_ADDRESS = "https://app.supervisely.com"
-              API_TOKEN = "zerPjM0yd0UzBXi9EpyaVOjxoiFazNMMSvtWVlS88CL9E5boXbhWMH9k2p32iq5rM9eZ7bAROaf0dCcNNqzk5hmXz67yHFDfkkKqEtXVw8rQLv0YgbhvV2TkA4GOPKYf"  # Replace with your actual token
-              TEAM_ID = 110016
-              WORKSPACE_ID = 124618
-              
-              api = sly.Api(server_address=SERVER_ADDRESS, token=API_TOKEN)
-              print("    ✅ Initialized API with hardcoded credentials")
-              print(f"    Team ID: {TEAM_ID}, Workspace ID: {WORKSPACE_ID}")
-              
-          except Exception as e:
-            print(f"    ❌ Could not initialize API: {e}")
-            api = None
+          print("  🔄 Attempting client-side API access...")
           
           frame_image_np = None
           api_success = False
           
-          if api:
-            video_id = context.imageId  # The video ID
-            frame_image_np, api_success = get_video_frame_using_api(video_id, current_frame, api)
+          # For client-side apps, try JavaScript API access
+          video_id = context.imageId  # The video ID
+          frame_image_np, api_success = get_video_frame_using_js_api(video_id, current_frame, context)
           
           if api_success and frame_image_np is not None:
             print(f"  🎯 SUCCESS: Got actual frame {current_frame} from VideoAnnotation API!")
