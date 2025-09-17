@@ -396,21 +396,83 @@ def main(mode='process'):
               frames_obj = cur_img.frames
               print(f"      Found frames object: {type(frames_obj)}")
               
+              # Deep debug the frames structure
               try:
-                frame_keys = Object.keys(frames_obj) if str(type(frames_obj)) == "<class 'pyodide.ffi.JsProxy'>" else range(cur_img.fileMeta.framesCount)
-                print(f"      Frame keys/indices: {list(frame_keys)[:10]}...")  # Show first 10
+                print(f"      🔍 DEEP DEBUGGING FRAMES STRUCTURE:")
                 
-                for frame_key in frame_keys:
+                # Try Object.keys for JavaScript objects
+                if str(type(frames_obj)) == "<class 'pyodide.ffi.JsProxy'>":
                   try:
-                    frame_obj = getattr(frames_obj, str(frame_key))
-                    if hasattr(frame_obj, 'id'):
-                      frame_mapping[int(frame_key)] = getattr(frame_obj, 'id')
-                    elif hasattr(frame_obj, 'imageId'):
-                      frame_mapping[int(frame_key)] = getattr(frame_obj, 'imageId')
-                    elif hasattr(frame_obj, 'entityId'):
-                      frame_mapping[int(frame_key)] = getattr(frame_obj, 'entityId')
+                    frame_keys = Object.keys(frames_obj)
+                    print(f"        Object.keys(frames): {list(frame_keys)}")
+                    
+                    # If Object.keys shows properties, try to access them
+                    for key in frame_keys:
+                      try:
+                        value = getattr(frames_obj, key)
+                        print(f"        frames.{key}: {type(value)}")
+                        
+                        # If this value looks like a collection of frames, explore it
+                        if str(type(value)) == "<class 'pyodide.ffi.JsProxy'>":
+                          try:
+                            sub_keys = Object.keys(value)
+                            print(f"          frames.{key} has keys: {list(sub_keys)[:5]}...")
+                            
+                            # Try to access first few items to see structure
+                            for sub_key in list(sub_keys)[:3]:
+                              try:
+                                sub_value = getattr(value, sub_key)
+                                print(f"            frames.{key}.{sub_key}: {type(sub_value)}")
+                                
+                                # Check if this looks like a frame with an image ID
+                                if str(type(sub_value)) == "<class 'pyodide.ffi.JsProxy'>":
+                                  sub_sub_keys = Object.keys(sub_value)
+                                  id_keys = [k for k in sub_sub_keys if 'id' in k.lower()]
+                                  print(f"              ID-like keys: {id_keys}")
+                                  
+                                  for id_key in id_keys:
+                                    try:
+                                      id_value = getattr(sub_value, id_key)
+                                      print(f"                {id_key}: {id_value}")
+                                    except:
+                                      pass
+                              except Exception as e:
+                                print(f"            Error accessing frames.{key}.{sub_key}: {e}")
+                          except Exception as e:
+                            print(f"          Error exploring frames.{key}: {e}")
+                      except Exception as e:
+                        print(f"        Error accessing frames.{key}: {e}")
+                        
                   except Exception as e:
-                    pass  # Skip problematic frames
+                    print(f"        Error with Object.keys: {e}")
+                
+                # Also try array-like access
+                try:
+                  print(f"        🔍 Trying array-like access:")
+                  total_frames = cur_img.fileMeta.framesCount if hasattr(cur_img, 'fileMeta') and hasattr(cur_img.fileMeta, 'framesCount') else 10
+                  print(f"        Total frames in video: {total_frames}")
+                  
+                  for i in range(min(5, total_frames)):  # Try first 5 frames
+                    try:
+                      frame_item = frames_obj[i]
+                      print(f"        frames[{i}]: {type(frame_item)}")
+                      
+                      if str(type(frame_item)) == "<class 'pyodide.ffi.JsProxy'>":
+                        item_keys = Object.keys(frame_item)
+                        id_keys = [k for k in item_keys if 'id' in k.lower()]
+                        print(f"          frames[{i}] ID keys: {id_keys}")
+                        for id_key in id_keys:
+                          try:
+                            id_value = getattr(frame_item, id_key)
+                            print(f"            frames[{i}].{id_key}: {id_value}")
+                            frame_mapping[i] = id_value
+                          except:
+                            pass
+                    except Exception as e:
+                      print(f"        Error accessing frames[{i}]: {e}")
+                        
+                except Exception as e:
+                  print(f"        Error with array access: {e}")
                     
                 print(f"      Built frame mapping with {len(frame_mapping)} entries")
                 if len(frame_mapping) > 0:
@@ -423,6 +485,10 @@ def main(mode='process'):
                   if current_frame in frame_mapping:
                     state.currentFrameImageId = frame_mapping[current_frame]
                     print(f"      ✅ Found image ID for frame {current_frame}: {frame_mapping[current_frame]}")
+                  else:
+                    print(f"      ❌ Current frame {current_frame} not found in mapping")
+                else:
+                  print(f"      ❌ No frame mappings could be built")
                   
               except Exception as e:
                 print(f"      Error building frame mapping: {e}")
