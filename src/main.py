@@ -594,28 +594,121 @@ def main(mode='process'):
             current_frame_image_id = state.frameToImageIdMapping[current_frame]
             print(f"    🆔 Using frame mapping for image ID: {current_frame_image_id}")
           
-          # Try to extract image ID directly from store.state.videos.all
-          elif hasattr(store.state.videos, 'all'):
-            print(f"    🔍 Trying to find frame image ID in videos.all...")
+          # Try to find frame images - they're separate image entities, not in videos.all
+          else:
+            print(f"    🔍 Searching for frame images (separate image entities)...")
             try:
-              videos_all = store.state.videos.all
-              all_keys = Object.keys(videos_all)
+              current_video_id = context.imageId
+              video_frame_mapping = {}
               
-              # Look for image IDs that might correspond to video frames
-              frame_image_ids = []
-              for key in all_keys:
+              # Search in multiple possible locations for frame images
+              search_locations = []
+              
+              # 1. Check if there's an images collection in store.state
+              if hasattr(store.state, 'images') and hasattr(store.state.images, 'all'):
+                search_locations.append(('images.all', store.state.images.all))
+              
+              # 2. Check if images are in the same videos namespace
+              if hasattr(store.state.videos, 'all'):
+                search_locations.append(('videos.all', store.state.videos.all))
+              
+              # 3. Check other top-level store locations
+              store_keys = Object.keys(store.state)
+              for key in store_keys:
+                if 'image' in key.lower() or 'frame' in key.lower():
+                  try:
+                    obj = getattr(store.state, key)
+                    if hasattr(obj, 'all'):
+                      search_locations.append((f'{key}.all', obj.all))
+                  except:
+                    pass
+              
+              print(f"    Will search in {len(search_locations)} locations: {[loc[0] for loc in search_locations]}")
+              
+              for location_name, collection in search_locations:
+                print(f"    🔍 Searching {location_name}...")
                 try:
-                  item = getattr(videos_all, key)
-                  # Check if this is a frame from our current video
-                  if hasattr(item, 'videoId') and hasattr(item, 'frame'):
-                    if getattr(item, 'videoId') == context.imageId and getattr(item, 'frame') == current_frame:
-                      current_frame_image_id = key
-                      print(f"    🎯 Found frame image ID in videos.all: {current_frame_image_id}")
-                      break
-                except:
-                  pass
+                  all_keys = Object.keys(collection)
+                  print(f"      Total items in {location_name}: {len(all_keys)}")
+                  
+                  frame_count = 0
+                  for key in all_keys:
+                    try:
+                      item = getattr(collection, key)
+                      
+                      # Check if this item has properties that indicate it's a video frame
+                      if str(type(item)) == "<class 'pyodide.ffi.JsProxy'>":
+                        item_props = Object.keys(item)
+                        
+                        # Look for video-related properties indicating this image belongs to a video
+                        video_indicators = ['videoId', 'videoFile', 'parentVideoId', 'parentId', 'video']
+                        frame_indicators = ['frame', 'frameIndex', 'frameNumber', 'index']
+                        
+                        video_id = None
+                        frame_num = None
+                        
+                        # Check for video relationship
+                        for prop in video_indicators:
+                          if prop in item_props:
+                            try:
+                              video_id = getattr(item, prop)
+                              break
+                            except:
+                              pass
+                        
+                        # Check for frame number
+                        for prop in frame_indicators:
+                          if prop in item_props:
+                            try:
+                              frame_num = getattr(item, prop)
+                              break
+                            except:
+                              pass
+                        
+                        # If this image belongs to our current video, add to mapping
+                        if video_id == current_video_id and frame_num is not None:
+                          video_frame_mapping[frame_num] = key
+                          frame_count += 1
+                          print(f"        ✅ Found frame {frame_num} → Image ID {key}")
+                          
+                    except Exception as e:
+                      pass  # Skip items we can't read
+                  
+                  print(f"      Found {frame_count} frames in {location_name}")
+                  
+                  # If we found frames, break (no need to search other locations)
+                  if frame_count > 0:
+                    break
+                    
+                except Exception as e:
+                  print(f"      Error searching {location_name}: {e}")
+              
+              print(f"    🎯 FINAL FRAME MAPPING RESULTS:")
+              print(f"      Total frames found: {len(video_frame_mapping)}")
+              
+              if len(video_frame_mapping) > 0:
+                # Show all mappings
+                sorted_frames = sorted(video_frame_mapping.items())
+                for frame_num, img_id in sorted_frames:
+                  print(f"        Frame {frame_num} → Image ID {img_id}")
+                
+                # Store the mapping for future use
+                state.frameToImageIdMapping = video_frame_mapping
+                
+                # Get the image ID for the current frame
+                if current_frame in video_frame_mapping:
+                  current_frame_image_id = video_frame_mapping[current_frame]
+                  print(f"      ✅ Current frame {current_frame} → Image ID {current_frame_image_id}")
+                else:
+                  print(f"      ❌ Current frame {current_frame} not found in mapping")
+                  # Show available frames for debugging
+                  available_frames = sorted(video_frame_mapping.keys())
+                  print(f"      Available frames: {available_frames}")
+              else:
+                print(f"      ❌ No frame images found - they might be loaded dynamically")
+                
             except Exception as e:
-              print(f"    Error searching videos.all: {e}")
+              print(f"    Error searching for frame images: {e}")
           
           # Final fallback
           if not current_frame_image_id:
