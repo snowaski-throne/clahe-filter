@@ -90,6 +90,29 @@ def main(mode='process'):
   except Exception as e:
     print(f"Error accessing cur_img.frames: {e}")
   
+  # Check context for frame information
+  print(f"\nContext frameIndex: {getattr(context, 'frameIndex', 'NOT FOUND')}")
+  print(f"Context currentFrame: {getattr(context, 'currentFrame', 'NOT FOUND')}")
+  
+  # Look for frame-related data in context
+  try:
+    debug_js_object(context, "context_detailed")
+  except Exception as e:
+    print(f"Error debugging context: {e}")
+  
+  # Check if there's frame data in store.state
+  try:
+    frame_keys = [key for key in Object.keys(store.state) if 'frame' in key.lower()]
+    print(f"Store.state keys containing 'frame': {frame_keys}")
+    
+    for key in frame_keys:
+      try:
+        debug_js_object(getattr(store.state, key), f"store.state.{key}")
+      except Exception as e:
+        print(f"Error accessing store.state.{key}: {e}")
+  except Exception as e:
+    print(f"Error checking store.state for frame data: {e}")
+  
   img_src = cur_img.sources[0]
   debug_js_object(img_src, "img_src")
   
