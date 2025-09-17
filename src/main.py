@@ -49,10 +49,10 @@ def debug_js_object(obj, name="object"):
   
   print(f"=== END DEBUG {name} ===\n")
 
-def process_clahe_with_canvas(img_cvs, img_ctx, app, cur_img, mode='process'):
-  """Apply CLAHE processing to the given canvas"""
+def process_histogram_equalization_with_canvas(img_cvs, img_ctx, app, cur_img, mode='process'):
+  """Apply histogram equalization processing to the given canvas"""
   try:
-    print(f"\n🎨 Starting CLAHE processing on {img_cvs.width}x{img_cvs.height} canvas...")
+    print(f"\n🎨 Starting Histogram Equalization processing on {img_cvs.width}x{img_cvs.height} canvas...")
     
     context = app.context
     state = app.state
@@ -70,26 +70,25 @@ def process_clahe_with_canvas(img_cvs, img_ctx, app, cur_img, mode='process'):
     if mode == 'restore':
       new_img_data = img_arr.flatten()
     else:
-      clip_limit = state.SliderAutoId6MqE3.value
-      clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
-
       if state.labCheck is False:
+        # Apply histogram equalization to grayscale
         img_gray = cv2.cvtColor(img_arr, cv2.COLOR_RGBA2GRAY)
-        cl_img_gray = clahe.apply(img_gray)
-        cl_img_rgb = cv2.cvtColor(cl_img_gray, cv2.COLOR_GRAY2RGB)
+        eq_img_gray = cv2.equalizeHist(img_gray)
+        eq_img_rgb = cv2.cvtColor(eq_img_gray, cv2.COLOR_GRAY2RGB)
       else:
+        # Apply histogram equalization to L channel in LAB color space
         img_lab = cv2.cvtColor(img_arr, cv2.COLOR_RGB2LAB)
 
         lab_planes = list(cv2.split(img_lab))
-        lab_planes[0] = clahe.apply(lab_planes[0])
+        lab_planes[0] = cv2.equalizeHist(lab_planes[0])  # Equalize L channel only
         img_lab = cv2.merge(lab_planes)
 
-        cl_img_rgb = cv2.cvtColor(img_lab, cv2.COLOR_LAB2RGB)
+        eq_img_rgb = cv2.cvtColor(img_lab, cv2.COLOR_LAB2RGB)
         
       alpha_channel = img_arr[:, :, 3]
-      cl_img = np.dstack((cl_img_rgb, alpha_channel))
+      eq_img = np.dstack((eq_img_rgb, alpha_channel))
 
-      new_img_data = cl_img.flatten().astype(np.uint8)
+      new_img_data = eq_img.flatten().astype(np.uint8)
 
     pixels_proxy = create_proxy(new_img_data)
     pixels_buf = pixels_proxy.getBuffer("u8clamped")
@@ -109,10 +108,10 @@ def process_clahe_with_canvas(img_cvs, img_ctx, app, cur_img, mode='process'):
     pixels_proxy.destroy()
     pixels_buf.release()
     
-    print("  ✅ CLAHE processing completed successfully!")
+    print("  ✅ Histogram Equalization processing completed successfully!")
     
   except Exception as e:
-    print(f"  ❌ Error in CLAHE processing: {e}")
+    print(f"  ❌ Error in Histogram Equalization processing: {e}")
 
 def main(mode='process'):
   app = slyApp.app
@@ -151,8 +150,8 @@ def main(mode='process'):
     img_ctx = img_cvs.getContext("2d")
     print(f"Image canvas: {img_cvs.width}x{img_cvs.height}")
     
-    # Process CLAHE immediately for images
-    process_clahe_with_canvas(img_cvs, img_ctx, app, cur_img, mode)
+    # Process histogram equalization immediately for images
+    process_histogram_equalization_with_canvas(img_cvs, img_ctx, app, cur_img, mode)
     
     # Also display processed image in our app interface
     try:
@@ -469,12 +468,12 @@ def main(mode='process'):
               # Set up for CLAHE processing
               img_cvs = temp_canvas
               img_ctx = temp_ctx
-              print("  Canvas ready for CLAHE processing!")
+              print("  Canvas ready for Histogram Equalization processing!")
               
-              # Continue with CLAHE processing now that frame is loaded
-              process_clahe_with_canvas(img_cvs, img_ctx, app, cur_img, mode)
+              # Continue with histogram equalization processing now that frame is loaded
+              process_histogram_equalization_with_canvas(img_cvs, img_ctx, app, cur_img, mode)
               
-              # After CLAHE processing, display processed frame in our app interface
+              # After histogram equalization processing, display processed frame in our app interface
               try:
                 print("  🖼️ Displaying processed frame in app interface...")
                 
