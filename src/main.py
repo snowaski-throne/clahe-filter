@@ -91,56 +91,105 @@ def main(mode='process'):
     print("Processing as VIDEO")
     print("Looking for video canvas equivalent to img.sources...")
     
-    # Search for canvas-like properties in the video object
-    print("\nSearching cur_img for canvas properties:")
-    all_props = dir(cur_img)
-    canvas_props = [prop for prop in all_props if any(term in prop.lower() for term in 
-                   ['canvas', 'image', 'source', 'data', 'element', 'frame', 'render', 'display'])]
-    print(f"  Potential canvas properties: {canvas_props}")
+    # Search store.state.videos for video player components (not individual videos)
+    print("\nSearching store.state.videos for player components:")
     
-    # Try to find video frame access similar to sources
-    video_canvas = None
-    video_ctx = None
-    
-    # Check if video has frames with canvas data for current frame
-    try:
-      current_frame = context.frame
-      print(f"\nLooking for frame {current_frame} data...")
-      
-      # Check if frames object has frame-specific data
-      frame_keys = Object.keys(cur_img.frames) if hasattr(cur_img, 'frames') else []
-      print(f"  Available frame keys: {frame_keys}")
-      
-      if str(current_frame) in frame_keys:
-        frame_data = getattr(cur_img.frames, str(current_frame))
-        debug_js_object(frame_data, f"frame_{current_frame}")
+    def search_for_canvas_in_object(obj, obj_name, max_depth=3, current_depth=0):
+      """Recursively search for canvas objects"""
+      if current_depth >= max_depth:
+        return None
         
-        # Look for canvas in frame data
-        if hasattr(frame_data, 'canvas') or hasattr(frame_data, 'imageData'):
-          video_canvas = getattr(frame_data, 'canvas', None) or getattr(frame_data, 'imageData', None)
-          if video_canvas:
-            print(f"  Found canvas in frame data!")
+      try:
+        # Check if this object is itself a canvas
+        if hasattr(obj, 'getContext'):
+          print(f"  🎯 FOUND CANVAS in {obj_name}!")
+          return obj
+          
+        # Check if this object has canvas properties
+        if hasattr(obj, 'canvas'):
+          canvas = getattr(obj, 'canvas')
+          if hasattr(canvas, 'getContext'):
+            print(f"  🎯 FOUND CANVAS in {obj_name}.canvas!")
+            return canvas
             
-    except Exception as e:
-      print(f"  Error checking frame data: {e}")
-    
-    # Check fileMeta for canvas references
-    try:
-      print(f"\nChecking fileMeta for canvas...")
-      if hasattr(cur_img, 'fileMeta'):
-        debug_js_object(cur_img.fileMeta, "fileMeta")
+        if hasattr(obj, 'imageData'):
+          img_data = getattr(obj, 'imageData')
+          if hasattr(img_data, 'getContext'):
+            print(f"  🎯 FOUND CANVAS in {obj_name}.imageData!")
+            return img_data
         
-        # Look for canvas properties in fileMeta
-        if hasattr(cur_img.fileMeta, 'canvas') or hasattr(cur_img.fileMeta, 'imageData'):
-          video_canvas = getattr(cur_img.fileMeta, 'canvas', None) or getattr(cur_img.fileMeta, 'imageData', None)
-          if video_canvas:
-            print(f"  Found canvas in fileMeta!")
-    except Exception as e:
-      print(f"  Error checking fileMeta: {e}")
+        # If this is a JS object, search its properties
+        if str(type(obj)) == "<class 'pyodide.ffi.JsProxy'>":
+          try:
+            keys = Object.keys(obj)
+            for key in keys:
+              try:
+                value = getattr(obj, key)
+                # Recursively search if it's another object
+                if str(type(value)) == "<class 'pyodide.ffi.JsProxy'>":
+                  result = search_for_canvas_in_object(value, f"{obj_name}.{key}", max_depth, current_depth + 1)
+                  if result:
+                    return result
+              except Exception as e:
+                pass  # Skip properties we can't access
+          except Exception as e:
+            pass
+            
+      except Exception as e:
+        pass
+        
+      return None
     
-    # Check for any other canvas-like properties
-    for prop in canvas_props:
-      if not video_canvas:
+    # Search through store.state.videos (excluding 'all' since that's the dataset)
+    video_canvas = None
+    videos_obj = store.state.videos
+    videos_keys = [key for key in Object.keys(videos_obj) if key != 'all']  # Skip the dataset
+    print(f"  Searching videos keys (excluding 'all'): {videos_keys}")
+    
+    for key in videos_keys:
+      try:
+        obj = getattr(videos_obj, key)
+        print(f"  Searching videos.{key}: {type(obj)}")
+        
+        result = search_for_canvas_in_object(obj, f"videos.{key}")
+        if result:
+          video_canvas = result
+          break
+          
+      except Exception as e:
+        print(f"  Error searching videos.{key}: {e}")
+    
+    # If not found in videos, search broader store.state
+    if not video_canvas:
+      print(f"\n  Searching broader store.state for player components:")
+      store_keys = Object.keys(store.state)
+      player_keys = [key for key in store_keys if any(term in key.lower() for term in 
+                     ['player', 'canvas', 'render', 'display', 'current', 'active', 'ui'])]
+      print(f"  Potential player-related store keys: {player_keys}")
+      
+      for key in player_keys:
+        try:
+          obj = getattr(store.state, key)
+          print(f"  Searching store.{key}: {type(obj)}")
+          
+          result = search_for_canvas_in_object(obj, f"store.{key}")
+          if result:
+            video_canvas = result
+            break
+            
+        except Exception as e:
+          print(f"  Error searching store.{key}: {e}")
+    
+    # Search for canvas-like properties in the individual video object (fallback)
+    if not video_canvas:
+      print(f"\n  Fallback: Searching cur_img for canvas properties:")
+      all_props = dir(cur_img)
+      canvas_props = [prop for prop in all_props if any(term in prop.lower() for term in 
+                     ['canvas', 'image', 'source', 'data', 'element', 'frame', 'render', 'display'])]
+      print(f"  Potential canvas properties: {canvas_props}")
+      
+      # Try individual video object properties
+      for prop in canvas_props:
         try:
           value = getattr(cur_img, prop)
           print(f"  cur_img.{prop}: {type(value)}")
@@ -162,6 +211,8 @@ def main(mode='process'):
         except Exception as e:
           print(f"  Error accessing {prop}: {e}")
     
+    # Final canvas setup
+    
     if video_canvas:
       print(f"\n🎯 FOUND VIDEO CANVAS OBJECT!")
       print(f"  Type: {type(video_canvas)}")
@@ -175,8 +226,79 @@ def main(mode='process'):
         return
     else:
       print("❌ No direct video canvas access found")
-      print("❌ Videos might need a different approach than direct canvas access")
-      return
+      print("🔄 Trying alternative approach: create canvas from video frame...")
+      
+      # Alternative approach: Create our own canvas using video dimensions
+      try:
+        from js import document
+        
+        # Get video dimensions from fileMeta
+        video_width = cur_img.fileMeta.width
+        video_height = cur_img.fileMeta.height
+        print(f"  Video dimensions: {video_width}x{video_height}")
+        
+        # Try to get current frame URL from preview system
+        # Videos have preview URLs like: "https://app.supervisely.com/previews/.../videoframe/33p/1/174515916?..."
+        frame_url = None
+        if hasattr(cur_img, 'preview'):
+          # Modify preview URL to get specific frame
+          preview_url = cur_img.preview
+          print(f"  Base preview URL: {preview_url}")
+          
+          # The preview URL contains frame info, we might be able to modify it for current frame
+          # For now, try using the existing preview URL
+          frame_url = preview_url
+        
+        if frame_url:
+          print(f"  Using frame URL: {frame_url}")
+          
+          # Create canvas with video dimensions
+          temp_canvas = document.createElement('canvas')
+          temp_canvas.width = video_width
+          temp_canvas.height = video_height
+          temp_ctx = temp_canvas.getContext('2d')
+          
+          # Create image element to load the frame
+          frame_img = document.createElement('img')
+          frame_img.crossOrigin = 'anonymous'  # Allow cross-origin for processing
+          
+          def on_frame_loaded():
+            print("  Frame image loaded successfully!")
+            try:
+              # Draw the frame to our canvas
+              temp_ctx.drawImage(frame_img, 0, 0, video_width, video_height)
+              print("  Frame drawn to canvas!")
+              
+              # Set up for CLAHE processing
+              nonlocal img_cvs, img_ctx
+              img_cvs = temp_canvas
+              img_ctx = temp_ctx
+              print("  Canvas ready for CLAHE processing!")
+              
+            except Exception as e:
+              print(f"  Error drawing frame to canvas: {e}")
+          
+          def on_frame_error():
+            print("  Error loading frame image")
+          
+          # Set up image loading
+          frame_img.onload = on_frame_loaded
+          frame_img.onerror = on_frame_error
+          frame_img.src = frame_url
+          
+          # Note: This is asynchronous - the frame will load after we return
+          # For now, we'll set up with empty canvas
+          img_cvs = temp_canvas
+          img_ctx = temp_ctx
+          print("  Canvas created, frame loading...")
+          
+        else:
+          print("❌ No frame URL available")
+          return
+          
+      except Exception as e:
+        print(f"❌ Error creating video canvas: {e}")
+        return
     
   else:
     print("ERROR: Unknown media type - neither image nor video format recognized")
