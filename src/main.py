@@ -24,6 +24,9 @@ def main(mode='process'):
   # appEventEmitter.emit('store-action', eventData)
 
   cur_img = getattr(store.state.videos.all, str(context.imageId))
+  print("store state: ",store.state.videos)
+  print("store keys: ",store.state.videos.keys())
+  print("context imageId: ",context.imageId)
   img_src = cur_img.sources[0]
   img_cvs = img_src.imageData
 
