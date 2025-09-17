@@ -444,6 +444,58 @@ def main(mode='process'):
               # Continue with CLAHE processing now that frame is loaded
               process_clahe_with_canvas(img_cvs, img_ctx, app, cur_img, mode)
               
+              # After CLAHE processing, try to update the video display
+              try:
+                print("  🖼️ Attempting to update video display...")
+                
+                # Strategy 1: Look for img elements that might be displaying the video frame
+                img_elements = document.querySelectorAll('img')
+                video_display_img = None
+                
+                for img in img_elements:
+                  if img.width > 400 and img.height > 300:  # Look for large images
+                    # Check if src contains video/frame related terms
+                    if hasattr(img, 'src') and any(term in img.src.lower() for term in ['video', 'frame', 'preview']):
+                      print(f"    Found potential video display img: {img.width}x{img.height}")
+                      print(f"      src: {img.src}")
+                      video_display_img = img
+                      break
+                
+                if video_display_img:
+                  # Convert our processed canvas to data URL and update the img src
+                  processed_data_url = temp_canvas.toDataURL('image/png')
+                  video_display_img.src = processed_data_url
+                  print("    ✅ Updated video display img with processed frame!")
+                else:
+                  print("    ❌ No suitable video display img found")
+                
+                # Strategy 2: Look for canvas elements that might be displaying the video
+                canvas_elements = document.querySelectorAll('canvas')
+                for canvas in canvas_elements:
+                  if canvas.width > 400 and canvas.height > 300:
+                    print(f"    Found potential display canvas: {canvas.width}x{canvas.height}")
+                    try:
+                      # Copy our processed canvas to the display canvas
+                      display_ctx = canvas.getContext('2d')
+                      display_ctx.drawImage(temp_canvas, 0, 0, canvas.width, canvas.height)
+                      print("    ✅ Updated display canvas with processed frame!")
+                      break
+                    except Exception as e:
+                      print(f"    ❌ Could not update canvas: {e}")
+                
+                # Strategy 3: Try to trigger a refresh/update event
+                try:
+                  # Dispatch a custom event that might trigger video player refresh
+                  from js import Event
+                  refresh_event = Event.new('frameupdate')
+                  document.dispatchEvent(refresh_event)
+                  print("    ✅ Dispatched frame update event")
+                except Exception as e:
+                  print(f"    ❌ Could not dispatch event: {e}")
+                  
+              except Exception as e:
+                print(f"  ❌ Error updating video display: {e}")
+              
             except Exception as e:
               print(f"  Error drawing frame to canvas: {e}")
           
