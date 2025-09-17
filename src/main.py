@@ -84,6 +84,12 @@ def main(mode='process'):
   # Debug the current image object
   debug_js_object(cur_img, "cur_img")
   
+  # Debug frames object for videos
+  try:
+    debug_js_object(cur_img.frames, "cur_img.frames")
+  except Exception as e:
+    print(f"Error accessing cur_img.frames: {e}")
+  
   img_src = cur_img.sources[0]
   debug_js_object(img_src, "img_src")
   
