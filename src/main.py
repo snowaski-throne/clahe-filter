@@ -87,133 +87,96 @@ def main(mode='process'):
     print(f"Image canvas: {img_cvs.width}x{img_cvs.height}")
   
   elif is_video:
-    # Handle videos - need to find current frame canvas
+    # Handle videos - look for direct canvas access like images
     print("Processing as VIDEO")
-    print("Searching for video frame canvas...")
+    print("Looking for video canvas equivalent to img.sources...")
     
-    # 1. Comprehensive canvas detection across all contexts
+    # Search for canvas-like properties in the video object
+    print("\nSearching cur_img for canvas properties:")
+    all_props = dir(cur_img)
+    canvas_props = [prop for prop in all_props if any(term in prop.lower() for term in 
+                   ['canvas', 'image', 'source', 'data', 'element', 'frame', 'render', 'display'])]
+    print(f"  Potential canvas properties: {canvas_props}")
+    
+    # Try to find video frame access similar to sources
+    video_canvas = None
+    video_ctx = None
+    
+    # Check if video has frames with canvas data for current frame
     try:
-      from js import document, window, setTimeout, Promise
-      import asyncio
+      current_frame = context.frame
+      print(f"\nLooking for frame {current_frame} data...")
       
-      def find_video_canvas():
-        """Search for video canvas with comprehensive debugging"""
-        print(f"  === COMPREHENSIVE CANVAS SEARCH ===")
-        print(f"  Current document: {document}")
-        print(f"  Document URL: {document.URL}")
-        print(f"  Document title: {document.title}")
-        
-        # 1. Basic canvas search
-        all_canvases = document.querySelectorAll('canvas')
-        print(f"  Main document canvases: {len(all_canvases)}")
-        
-        # 2. Search in iframes
-        iframes = document.querySelectorAll('iframe')
-        print(f"  Found {len(iframes)} iframes")
-        for i, iframe in enumerate(iframes):
-          try:
-            iframe_doc = iframe.contentDocument
-            if iframe_doc:
-              iframe_canvases = iframe_doc.querySelectorAll('canvas')
-              print(f"    Iframe {i}: {len(iframe_canvases)} canvases")
-              for canvas in iframe_canvases:
-                print(f"      Iframe canvas: {canvas.width}x{canvas.height}")
-                if canvas.width > 500:
-                  return canvas
-          except Exception as e:
-            print(f"    Iframe {i}: Access denied - {e}")
-        
-        # 3. Search for alternative elements
-        videos = document.querySelectorAll('video')
-        images = document.querySelectorAll('img')
-        divs = document.querySelectorAll('div[style*="background"]')
-        
-        print(f"  Alternative elements - videos: {len(videos)}, large images: {len([img for img in images if img.width > 500])}, bg divs: {len(divs)}")
-        
-        # 4. Search all elements with dimension properties
-        all_elements = document.querySelectorAll('*')
-        potential_canvases = []
-        for element in all_elements:
-          try:
-            if hasattr(element, 'width') and hasattr(element, 'height'):
-              if element.width > 1000 and element.height > 1000:
-                potential_canvases.append(element)
-          except:
-            pass
-        
-        print(f"  Large elements (>1000px): {len(potential_canvases)}")
-        for i, element in enumerate(potential_canvases):
-          print(f"    Large element {i}: {element.tagName} {element.width}x{element.height}")
-          if element.tagName.lower() == 'canvas':
-            return element
-        
-        # 5. Try to find canvas using different selectors
-        selectors = [
-          'canvas[width]',
-          'canvas[height]', 
-          '[role="img"]',
-          '[data-video]',
-          '.video-canvas',
-          '#video-canvas'
-        ]
-        
-        for selector in selectors:
-          elements = document.querySelectorAll(selector)
-          if len(elements) > 0:
-            print(f"  Found {len(elements)} elements with selector '{selector}'")
-            for element in elements:
-              if hasattr(element, 'getContext'):
-                return element
-        
-        return None
+      # Check if frames object has frame-specific data
+      frame_keys = Object.keys(cur_img.frames) if hasattr(cur_img, 'frames') else []
+      print(f"  Available frame keys: {frame_keys}")
       
-      # Try immediate search
-      print(f"\n1. Searching for video canvas (attempt 1):")
-      video_frame_canvas = find_video_canvas()
-      
-      # If not found, wait a bit and try again
-      if not video_frame_canvas:
-        print(f"\n1b. Canvas not found immediately, waiting 100ms and trying again...")
-        import time
-        time.sleep(0.1)  # Wait 100ms
-        video_frame_canvas = find_video_canvas()
-      
-      # Try looking in all possible containers
-      if not video_frame_canvas:
-        print(f"\n1c. Searching in all container elements...")
-        containers = document.querySelectorAll('div, section, article, main')
-        for container in containers:
-          canvases_in_container = container.querySelectorAll('canvas')
-          if len(canvases_in_container) > 0:
-            print(f"    Found {len(canvases_in_container)} canvases in container")
-            for canvas in canvases_in_container:
-              if canvas.width > 500:  # Lower threshold
-                print(f"      Found large canvas: {canvas.width}x{canvas.height}")
-                video_frame_canvas = canvas
-                break
-            if video_frame_canvas:
-              break
-              
-      if video_frame_canvas:
-        print(f"\n🎯 FOUND VIDEO FRAME CANVAS!")
-        print(f"  Dimensions: {video_frame_canvas.width}x{video_frame_canvas.height}")
-        print(f"  Style: {video_frame_canvas.style.cssText}")
+      if str(current_frame) in frame_keys:
+        frame_data = getattr(cur_img.frames, str(current_frame))
+        debug_js_object(frame_data, f"frame_{current_frame}")
         
-        # Use this canvas for CLAHE processing
-        img_cvs = video_frame_canvas
-        img_ctx = video_frame_canvas.getContext("2d")
-        print("  Setting up for CLAHE processing...")
-        
-      else:
-        print("❌ Still no video frame canvas found after extensive search")
-        print("❌ The canvas might be created dynamically or in a different context")
-        return
-        
+        # Look for canvas in frame data
+        if hasattr(frame_data, 'canvas') or hasattr(frame_data, 'imageData'):
+          video_canvas = getattr(frame_data, 'canvas', None) or getattr(frame_data, 'imageData', None)
+          if video_canvas:
+            print(f"  Found canvas in frame data!")
+            
     except Exception as e:
-      print(f"Error in canvas detection: {e}")
-      return
+      print(f"  Error checking frame data: {e}")
     
-    # Continue to CLAHE processing now that we have the video canvas
+    # Check fileMeta for canvas references
+    try:
+      print(f"\nChecking fileMeta for canvas...")
+      if hasattr(cur_img, 'fileMeta'):
+        debug_js_object(cur_img.fileMeta, "fileMeta")
+        
+        # Look for canvas properties in fileMeta
+        if hasattr(cur_img.fileMeta, 'canvas') or hasattr(cur_img.fileMeta, 'imageData'):
+          video_canvas = getattr(cur_img.fileMeta, 'canvas', None) or getattr(cur_img.fileMeta, 'imageData', None)
+          if video_canvas:
+            print(f"  Found canvas in fileMeta!")
+    except Exception as e:
+      print(f"  Error checking fileMeta: {e}")
+    
+    # Check for any other canvas-like properties
+    for prop in canvas_props:
+      if not video_canvas:
+        try:
+          value = getattr(cur_img, prop)
+          print(f"  cur_img.{prop}: {type(value)}")
+          
+          # Check if this could be a canvas
+          if hasattr(value, 'getContext'):
+            print(f"    ^ This has getContext() - it's a canvas!")
+            video_canvas = value
+            break
+          elif hasattr(value, 'canvas'):
+            print(f"    ^ This has a canvas property!")
+            video_canvas = getattr(value, 'canvas')
+            break
+          elif hasattr(value, 'imageData'):
+            print(f"    ^ This has imageData property!")
+            video_canvas = getattr(value, 'imageData')
+            break
+            
+        except Exception as e:
+          print(f"  Error accessing {prop}: {e}")
+    
+    if video_canvas:
+      print(f"\n🎯 FOUND VIDEO CANVAS OBJECT!")
+      print(f"  Type: {type(video_canvas)}")
+      try:
+        print(f"  Dimensions: {video_canvas.width}x{video_canvas.height}")
+        img_cvs = video_canvas
+        img_ctx = video_canvas.getContext("2d")
+        print("  Successfully set up for CLAHE processing!")
+      except Exception as e:
+        print(f"  Error setting up canvas: {e}")
+        return
+    else:
+      print("❌ No direct video canvas access found")
+      print("❌ Videos might need a different approach than direct canvas access")
+      return
     
   else:
     print("ERROR: Unknown media type - neither image nor video format recognized")
