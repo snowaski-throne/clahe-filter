@@ -1,4 +1,4 @@
-from js import ImageData, Object, slyApp
+from js import ImageData, Object, slyApp, JSON
 from pyodide.ffi import create_proxy
 import numpy as np
 import cv2
@@ -7,6 +7,47 @@ import cv2
 def dump(obj):
   for attr in dir(obj):
     print("obj.%s = %r" % (attr, getattr(obj, attr)))
+
+def debug_js_object(obj, name="object"):
+  """Debug JavaScript objects with comprehensive info"""
+  print(f"\n=== DEBUG {name} ===")
+  
+  # Try to get type and basic info
+  try:
+    print(f"Type: {type(obj)}")
+    print(f"Dir: {dir(obj)}")
+  except Exception as e:
+    print(f"Error getting type/dir: {e}")
+  
+  # Try Object.keys() for JS objects
+  try:
+    keys = Object.keys(obj)
+    print(f"Object.keys(): {list(keys)}")
+    
+    # Try to access each key
+    for key in keys:
+      try:
+        value = getattr(obj, key)
+        print(f"  {key}: {type(value)} = {value}")
+      except Exception as e:
+        print(f"  {key}: Error accessing - {e}")
+  except Exception as e:
+    print(f"Object.keys() failed: {e}")
+  
+  # Try JSON.stringify for complex objects
+  try:
+    json_str = JSON.stringify(obj)
+    print(f"JSON.stringify(): {json_str}")
+  except Exception as e:
+    print(f"JSON.stringify() failed: {e}")
+  
+  # Try vars() for Python objects
+  try:
+    print(f"vars(): {vars(obj)}")
+  except Exception as e:
+    print(f"vars() failed: {e}")
+  
+  print(f"=== END DEBUG {name} ===\n")
 
 def main(mode='process'):
   app = slyApp.app
@@ -23,15 +64,34 @@ def main(mode='process'):
   # eventData.payload = {}
   # appEventEmitter.emit('store-action', eventData)
 
+  # Debug comprehensive object information
+  debug_js_object(store, "store")
+  debug_js_object(store.state, "store.state")
+  debug_js_object(store.state.videos, "store.state.videos")
+  debug_js_object(context, "context")
+  debug_js_object(state, "state")
+  
+  print(f"context.imageId: {context.imageId}")
+  
+  # Try to debug store.state.videos.all if it exists
+  try:
+    debug_js_object(store.state.videos.all, "store.state.videos.all")
+  except Exception as e:
+    print(f"Error accessing store.state.videos.all: {e}")
+  
   cur_img = getattr(store.state.videos.all, str(context.imageId))
-  print("store state: ",store.state.videos)
-  print("store keys: ",store.state.videos.keys())
-  print("context imageId: ",context.imageId)
+  
+  # Debug the current image object
+  debug_js_object(cur_img, "cur_img")
   
   img_src = cur_img.sources[0]
+  debug_js_object(img_src, "img_src")
+  
   img_cvs = img_src.imageData
+  debug_js_object(img_cvs, "img_cvs")
 
   img_ctx = img_cvs.getContext("2d")
+  debug_js_object(img_ctx, "img_ctx")
 
   if state.imagePixelsDataImageId != context.imageId:
     img_data = img_ctx.getImageData(0, 0, img_cvs.width, img_cvs.height).data
