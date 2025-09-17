@@ -1,4 +1,4 @@
-from js import ImageData, Object, slyApp, JSON, Date
+from js import ImageData, Object, slyApp, JSON
 from pyodide.ffi import create_proxy
 import numpy as np
 import cv2
@@ -48,40 +48,6 @@ def debug_js_object(obj, name="object"):
     print(f"vars() failed: {e}")
   
   print(f"=== END DEBUG {name} ===\n")
-
-def get_video_frame_using_js_api(video_id, frame_index, app_context):
-  """Get actual video frame data using JavaScript API (client-side)"""
-  try:
-    print(f"  🔄 Fetching frame {frame_index} using JavaScript API...")
-    
-    from js import fetch, Response
-    
-    # Try to access frame through client-side API
-    try:
-      # Method 1: Check if slyApp has direct frame access
-      if hasattr(slyApp, 'api') and hasattr(slyApp.api, 'video'):
-        print(f"    🎯 Found slyApp.api.video - attempting frame download...")
-        # This would be the ideal case for client-side API access
-        return None, False  # For now, return False since we need to test the API structure
-      
-      # Method 2: Check if app context provides frame access  
-      elif hasattr(app_context, 'api'):
-        print(f"    🎯 Found app context API - checking capabilities...")
-        return None, False
-      
-      # Method 3: Use JavaScript fetch to get frame data
-      else:
-        print(f"    🌐 Attempting direct frame URL access...")
-        # For client-side apps, frame access might be through URLs or existing context
-        return None, False
-        
-    except Exception as e:
-      print(f"    ❌ JavaScript API access failed: {e}")
-      return None, False
-    
-  except Exception as e:
-    print(f"  ❌ Error in JavaScript API access: {e}")
-    return None, False
 
 def process_histogram_equalization_with_canvas(img_cvs, img_ctx, app, cur_img, mode='process'):
   """Apply histogram equalization processing to the given canvas"""
@@ -164,33 +130,8 @@ def main(mode='process'):
 
   cur_img = getattr(store.state.videos.all, str(context.imageId))
   
-  # Enhanced debugging for frame tracking
-  print(f"\n🔍 FRAME DEBUGGING:")
-  print(f"  Processing media ID: {context.imageId}")
-  print(f"  Current frame: {context.frame}")
-  
-  # Check if we have previous frame tracking
-  if not hasattr(state, 'lastProcessedFrame') or not hasattr(state, 'lastProcessedImageId'):
-    state.lastProcessedFrame = -1
-    state.lastProcessedImageId = -1
-    print(f"  Initializing frame tracking")
-  
-  # Initialize frame-to-image-ID mapping if not exists
-  if not hasattr(state, 'frameToImageIdMapping'):
-    state.frameToImageIdMapping = None
-    print(f"  Initializing frame-to-image-ID mapping")
-  
-  # Detect frame/video changes
-  frame_changed = state.lastProcessedFrame != context.frame
-  video_changed = state.lastProcessedImageId != context.imageId
-  
-  print(f"  Last processed: frame={state.lastProcessedFrame}, imageId={state.lastProcessedImageId}")
-  print(f"  Frame changed: {frame_changed}")
-  print(f"  Video changed: {video_changed}")
-  
-  # Update tracking
-  state.lastProcessedFrame = context.frame
-  state.lastProcessedImageId = context.imageId
+  print(f"Processing media ID: {context.imageId}")
+  print(f"Current frame: {context.frame}")
   
   # Check if this is a video or image and handle accordingly
   has_sources = hasattr(cur_img, 'sources') and cur_img.sources and len(cur_img.sources) > 0
@@ -243,230 +184,370 @@ def main(mode='process'):
     return
   
   elif is_video:
-    # Handle videos using Supervisely VideoAnnotation API approach  
+    # Handle videos - look for direct canvas access like images
     print("Processing as VIDEO")
-    print("🎯 Using Supervisely VideoAnnotation API approach (not URL manipulation)")
-    print("   Reference: https://developer.supervisely.com/app-development/apps-with-gui/video-labeling-tool-app")
+    print("Looking for video canvas equivalent to img.sources...")
     
-    # Get basic video info
-    video_width = cur_img.fileMeta.width
-    video_height = cur_img.fileMeta.height
-    current_frame = context.frame
+    # Search store.state.videos for video player components (not individual videos)
+    print("\nSearching store.state.videos for player components:")
     
-    print(f"\nVideo info:")
-    print(f"  Dimensions: {video_width}x{video_height}")
-    print(f"  Total frames: {cur_img.fileMeta.framesCount}")
-    print(f"  Current frame: {current_frame}")
-    
-    # Try to find the video player's canvas in the DOM
-    print(f"\n🎯 Looking for video player's current frame canvas in DOM...")
-    
-    try:
-      from js import document
-      
-      # Look for video player elements using common selectors
-      video_selectors = [
-        'video',
-        'canvas[class*="video"]',
-        'canvas[class*="player"]', 
-        'canvas[id*="video"]',
-        'canvas[id*="player"]',
-        '.video-canvas',
-        '.player-canvas'
-      ]
-      
-      found_video_element = None
-      for selector in video_selectors:
-        try:
-          elements = document.querySelectorAll(selector)
-          if elements.length > 0:
-            print(f"  Found {elements.length} elements matching '{selector}'")
-            for i in range(elements.length):
-              element = elements[i]
-              print(f"    Element {i}: {element.tagName} - {element.className}")
-              
-              # Check if this element has video-like properties
-              if element.tagName.lower() == 'canvas' and hasattr(element, 'getContext'):
-                print(f"      Canvas size: {element.width}x{element.height}")
-                if element.width == video_width and element.height == video_height:
-                  print(f"      ✅ Canvas matches video dimensions!")
-                  found_video_element = element
-                  break
-              elif element.tagName.lower() == 'video':
-                print(f"      HTML5 video element found")
-                found_video_element = element
-                break
-                  
-        except Exception as e:
-          print(f"  Error searching for '{selector}': {e}")
+    def search_for_canvas_in_object(obj, obj_name, max_depth=3, current_depth=0):
+      """Recursively search for canvas objects"""
+      if current_depth >= max_depth:
+        return None
         
-        if found_video_element:
-          break
-    
-      # Process the found video element
-      if found_video_element:
-        print(f"\n🎯 FOUND VIDEO ELEMENT!")
-        
-        # Create canvas for processing
-        temp_canvas = document.createElement('canvas')
-        temp_canvas.width = video_width
-        temp_canvas.height = video_height
-        temp_ctx = temp_canvas.getContext('2d')
-        
-        if found_video_element.tagName.lower() == 'video':
-          print("  Found HTML5 video element - extracting current frame...")
-          # Draw current video frame to canvas
-          temp_ctx.drawImage(found_video_element, 0, 0, video_width, video_height)
-        elif found_video_element.tagName.lower() == 'canvas':
-          print("  Found video canvas element - copying content...")
-          # Copy canvas content
-          temp_ctx.drawImage(found_video_element, 0, 0)
-        
-        img_cvs = temp_canvas
-        img_ctx = temp_ctx
-        
-        print("  ✅ Video element set up for processing!")
-        
-        # Process the current frame
-        process_histogram_equalization_with_canvas(img_cvs, img_ctx, app, cur_img, mode)
-        
-        # Display in our app interface
-        try:
-          print("  🖼️ Displaying processed frame in app interface...")
+      try:
+        # Check if this object is itself a canvas
+        if hasattr(obj, 'getContext'):
+          print(f"  🎯 FOUND CANVAS in {obj_name}!")
+          return obj
           
-          processed_data_url = img_cvs.toDataURL('image/png')
-          processed_data_url_with_timestamp = f"{processed_data_url}#t={Date.new().getTime()}"
-          
-          display_img = document.getElementById('processed-frame-display')
-          status_div = document.getElementById('processed-frame-status')
-          
-          if display_img and status_div:
-            display_img.src = processed_data_url_with_timestamp
-            display_img.style.display = 'block'
+        # Check if this object has canvas properties
+        if hasattr(obj, 'canvas'):
+          canvas = getattr(obj, 'canvas')
+          if hasattr(canvas, 'getContext'):
+            print(f"  🎯 FOUND CANVAS in {obj_name}.canvas!")
+            return canvas
             
-            status_div.textContent = f"✅ Processed frame {current_frame} ({video_width}x{video_height}) - Direct video element"
-            status_div.style.color = '#28a745'
-            
-            print(f"    ✅ Updated app display with processed frame!")
-          else:
-            print(f"    ❌ Could not find display elements in app interface")
-            
-        except Exception as e:
-          print(f"  ❌ Error updating app display: {e}")
+        if hasattr(obj, 'imageData'):
+          img_data = getattr(obj, 'imageData')
+          if hasattr(img_data, 'getContext'):
+            print(f"  🎯 FOUND CANVAS in {obj_name}.imageData!")
+            return img_data
         
-        return
-        
-      else:
-        print("❌ Could not find video player elements in DOM")
-        print("🔄 Attempting VideoAnnotation API access...")
-        
-        # Try to access frame using client-side JavaScript API
-        try:
-          print("  🔄 Attempting client-side API access...")
-          
-          frame_image_np = None
-          api_success = False
-          
-          # For client-side apps, try JavaScript API access
-          video_id = context.imageId  # The video ID
-          frame_image_np, api_success = get_video_frame_using_js_api(video_id, current_frame, context)
-          
-          if api_success and frame_image_np is not None:
-            print(f"  🎯 SUCCESS: Got actual frame {current_frame} from VideoAnnotation API!")
-            
-            # Convert numpy array to canvas
-            temp_canvas = document.createElement('canvas')
-            temp_canvas.width = video_width
-            temp_canvas.height = video_height
-            temp_ctx = temp_canvas.getContext('2d')
-            
-            # Convert numpy array to ImageData
-            if len(frame_image_np.shape) == 3:
-              # Add alpha channel if missing
-              if frame_image_np.shape[2] == 3:
-                alpha_channel = np.full((frame_image_np.shape[0], frame_image_np.shape[1], 1), 255, dtype=np.uint8)
-                frame_image_np = np.concatenate([frame_image_np, alpha_channel], axis=2)
-            
-            # Flatten and create ImageData
-            flat_data = frame_image_np.flatten()
-            pixels_proxy = create_proxy(flat_data)
-            pixels_buf = pixels_proxy.getBuffer("u8clamped")
-            frame_image_data = ImageData.new(pixels_buf.data, video_width, video_height)
-            
-            # Draw to canvas
-            temp_ctx.putImageData(frame_image_data, 0, 0)
-            
-            # Clean up
-            pixels_proxy.destroy()
-            pixels_buf.release()
-            
-            img_cvs = temp_canvas
-            img_ctx = temp_ctx
-            
-            print(f"    ✅ Frame {current_frame} converted to canvas for processing!")
-            
-          else:
-            print(f"  ⚠️ VideoAnnotation API not available - using placeholder")
-            
-            # Create placeholder when API access fails
-            temp_canvas = document.createElement('canvas')
-            temp_canvas.width = video_width  
-            temp_canvas.height = video_height
-            temp_ctx = temp_canvas.getContext('2d')
-            
-            # Fill with placeholder
-            temp_ctx.fillStyle = '#f0f0f0'
-            temp_ctx.fillRect(0, 0, video_width, video_height)
-            temp_ctx.fillStyle = '#333'
-            temp_ctx.font = '24px Arial'
-            temp_ctx.textAlign = 'center'
-            temp_ctx.fillText(f"Frame {current_frame}", video_width/2, video_height/2 - 12)
-            temp_ctx.fillText(f"(API Access Needed)", video_width/2, video_height/2 + 12)
-            
-            img_cvs = temp_canvas
-            img_ctx = temp_ctx
-            
-            print(f"  Created placeholder canvas for frame {current_frame}")
-          
-          # Process the frame (real or placeholder)
-          process_histogram_equalization_with_canvas(img_cvs, img_ctx, app, cur_img, mode)
-          
-          # Display in our app interface
+        # If this is a JS object, search its properties
+        if str(type(obj)) == "<class 'pyodide.ffi.JsProxy'>":
           try:
-            processed_data_url = img_cvs.toDataURL('image/png')
-            processed_data_url_with_timestamp = f"{processed_data_url}#t={Date.new().getTime()}"
-            
-            display_img = document.getElementById('processed-frame-display')
-            status_div = document.getElementById('processed-frame-status')
-            
-            if display_img and status_div:
-              display_img.src = processed_data_url_with_timestamp
-              display_img.style.display = 'block'
-              
-              if api_success:
-                status_div.textContent = f"✅ Processed REAL frame {current_frame} ({video_width}x{video_height}) - VideoAnnotation API"
-                status_div.style.color = '#28a745'  # Green for success
-              else:
-                status_div.textContent = f"📝 Processed placeholder for frame {current_frame} - API access needed"
-                status_div.style.color = '#ffc107'  # Warning color
-              
-              print(f"    ✅ Updated app display!")
-            else:
-              print(f"    ❌ Could not find display elements")
-              
+            keys = Object.keys(obj)
+            for key in keys:
+              try:
+                value = getattr(obj, key)
+                # Recursively search if it's another object
+                if str(type(value)) == "<class 'pyodide.ffi.JsProxy'>":
+                  result = search_for_canvas_in_object(value, f"{obj_name}.{key}", max_depth, current_depth + 1)
+                  if result:
+                    return result
+              except Exception as e:
+                pass  # Skip properties we can't access
           except Exception as e:
-            print(f"  ❌ Error updating app display: {e}")
-          
-          return
-          
-        except Exception as e:
-          print(f"  ❌ Error in VideoAnnotation API approach: {e}")
-          return
+            pass
+            
+      except Exception as e:
+        pass
         
-    except Exception as e:
-      print(f"❌ Error accessing video elements: {e}")
-      return
-  
+      return None
+    
+    # Search through store.state.videos (excluding 'all' since that's the dataset)
+    video_canvas = None
+    videos_obj = store.state.videos
+    videos_keys = [key for key in Object.keys(videos_obj) if key != 'all']  # Skip the dataset
+    print(f"  Searching videos keys (excluding 'all'): {videos_keys}")
+    
+    for key in videos_keys:
+      try:
+        obj = getattr(videos_obj, key)
+        print(f"  Searching videos.{key}: {type(obj)}")
+        
+        result = search_for_canvas_in_object(obj, f"videos.{key}")
+        if result:
+          video_canvas = result
+          break
+          
+      except Exception as e:
+        print(f"  Error searching videos.{key}: {e}")
+    
+    # If not found in videos, search broader store.state
+    if not video_canvas:
+      print(f"\n  Searching broader store.state for player components:")
+      store_keys = Object.keys(store.state)
+      player_keys = [key for key in store_keys if any(term in key.lower() for term in 
+                     ['player', 'canvas', 'render', 'display', 'current', 'active', 'ui'])]
+      print(f"  Potential player-related store keys: {player_keys}")
+      
+      for key in player_keys:
+        try:
+          obj = getattr(store.state, key)
+          print(f"  Searching store.{key}: {type(obj)}")
+          
+          result = search_for_canvas_in_object(obj, f"store.{key}")
+          if result:
+            video_canvas = result
+            break
+            
+        except Exception as e:
+          print(f"  Error searching store.{key}: {e}")
+    
+    # Test frame-level sources approach (like images but per frame)
+    if not video_canvas:
+      print(f"\n  Testing frame-level sources approach:")
+      try:
+        current_frame = context.frame
+        print(f"  Trying cur_img[{current_frame}].sources...")
+        
+        # Try accessing the specific frame
+        frame_obj = None
+        try:
+          # Try numeric indexing
+          frame_obj = cur_img[current_frame]
+          print(f"    cur_img[{current_frame}]: {type(frame_obj)}")
+        except:
+          try:
+            # Try string indexing
+            frame_obj = cur_img[str(current_frame)]
+            print(f"    cur_img['{current_frame}']: {type(frame_obj)}")
+          except:
+            try:
+              # Try accessing from frames property
+              frame_obj = getattr(cur_img.frames, str(current_frame))
+              print(f"    cur_img.frames['{current_frame}']: {type(frame_obj)}")
+            except:
+              print(f"    ❌ Could not access frame {current_frame}")
+        
+        if frame_obj:
+          print(f"    ✅ Found frame object: {type(frame_obj)}")
+          
+          # Check if frame has sources like images do
+          if hasattr(frame_obj, 'sources'):
+            sources = getattr(frame_obj, 'sources')
+            print(f"    ✅ Frame has sources: {type(sources)}, length: {len(sources) if hasattr(sources, '__len__') else 'unknown'}")
+            
+            if sources and len(sources) > 0:
+              frame_src = sources[0]
+              print(f"    ✅ Frame source[0]: {type(frame_src)}")
+              
+              if hasattr(frame_src, 'imageData'):
+                video_canvas = frame_src.imageData
+                print(f"    🎯 FOUND FRAME CANVAS! {type(video_canvas)}")
+              else:
+                print(f"    ❌ Frame source has no imageData")
+            else:
+              print(f"    ❌ Frame sources is empty")
+          else:
+            print(f"    ❌ Frame has no sources property")
+            # Debug what the frame object does have
+            try:
+              frame_keys = Object.keys(frame_obj) if str(type(frame_obj)) == "<class 'pyodide.ffi.JsProxy'>" else dir(frame_obj)
+              print(f"    Frame properties: {frame_keys}")
+            except:
+              print(f"    Could not get frame properties")
+        
+      except Exception as e:
+        print(f"  Error testing frame-level approach: {e}")
+    
+    # Search for canvas-like properties in the individual video object (final fallback)
+    if not video_canvas:
+      print(f"\n  Final fallback: Searching cur_img for canvas properties:")
+      all_props = dir(cur_img)
+      canvas_props = [prop for prop in all_props if any(term in prop.lower() for term in 
+                     ['canvas', 'image', 'source', 'data', 'element', 'frame', 'render', 'display'])]
+      print(f"  Potential canvas properties: {canvas_props}")
+      
+      # Try individual video object properties
+      for prop in canvas_props:
+        try:
+          value = getattr(cur_img, prop)
+          print(f"  cur_img.{prop}: {type(value)}")
+          
+          # Check if this could be a canvas
+          if hasattr(value, 'getContext'):
+            print(f"    ^ This has getContext() - it's a canvas!")
+            video_canvas = value
+            break
+          elif hasattr(value, 'canvas'):
+            print(f"    ^ This has a canvas property!")
+            video_canvas = getattr(value, 'canvas')
+            break
+          elif hasattr(value, 'imageData'):
+            print(f"    ^ This has imageData property!")
+            video_canvas = getattr(value, 'imageData')
+            break
+            
+        except Exception as e:
+          print(f"  Error accessing {prop}: {e}")
+    
+    # Final canvas setup
+    
+    if video_canvas:
+      print(f"\n🎯 FOUND VIDEO CANVAS OBJECT!")
+      print(f"  Type: {type(video_canvas)}")
+      try:
+        print(f"  Dimensions: {video_canvas.width}x{video_canvas.height}")
+        img_cvs = video_canvas
+        img_ctx = video_canvas.getContext("2d")
+        print("  Successfully set up for CLAHE processing!")
+      except Exception as e:
+        print(f"  Error setting up canvas: {e}")
+        return
+    else:
+      print("❌ No direct video canvas access found")
+      print("🔄 Trying alternative approach: create canvas from video frame...")
+      
+      # Alternative approach: Create our own canvas using video dimensions
+      try:
+        from js import document
+        
+        # Get video dimensions from fileMeta
+        video_width = cur_img.fileMeta.width
+        video_height = cur_img.fileMeta.height
+        print(f"  Video dimensions: {video_width}x{video_height}")
+        
+        # Try to get current frame URL from preview system
+        # Videos have preview URLs like: "https://app.supervisely.com/previews/.../videoframe/33p/1/174515916?..."
+        frame_url = None
+        if hasattr(cur_img, 'preview'):
+          preview_url = cur_img.preview
+          print(f"  Base preview URL: {preview_url}")
+          
+          # Strategy: Try multiple URL approaches, prioritizing high resolution
+          current_frame = context.frame
+          frame_urls_to_try = []
+          
+          import re
+          frame_pattern = r'videoframe/([^/]+)/(\d+)/'
+          match = re.search(frame_pattern, preview_url)
+          
+          print(f"  🔍 Analyzing preview URL for frame pattern:")
+          print(f"    URL: {preview_url}")
+          if match:
+            original_frame_str = match.group(2)
+            quality = match.group(1)
+            print(f"    Found frame pattern: quality={quality}, original_frame={original_frame_str}")
+          else:
+            print(f"    ❌ No frame pattern found in URL!")
+          
+          # Strategy 1: High resolution with correct frame (PRIORITIZE FRAME-AWARE STRATEGIES)
+          url_high_res = preview_url.replace('resize:fill:150:0:0', f'resize:fill:{video_width}:{video_height}:0')
+          if match:
+            # Try both frame indexing strategies at high resolution
+            quality = match.group(1)
+            original_frame_num = int(match.group(2))
+            
+            # 1-indexed frame at high res (try this first)
+            new_frame_1indexed = current_frame + 1
+            url_high_1indexed = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame_1indexed}/', url_high_res)
+            frame_urls_to_try.append(("high_res_1indexed", url_high_1indexed))
+            print(f"    Generated 1-indexed URL: {original_frame_num} -> {new_frame_1indexed}")
+            
+            # 0-indexed frame at high res
+            new_frame_0indexed = current_frame
+            url_high_0indexed = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame_0indexed}/', url_high_res)
+            frame_urls_to_try.append(("high_res_0indexed", url_high_0indexed))
+            print(f"    Generated 0-indexed URL: {original_frame_num} -> {new_frame_0indexed}")
+            
+            # Strategy 2: Full resolution with correct frame (remove resize but keep frame changes)
+            url_full_res_1indexed = re.sub(r'/resize:fill:\d+:\d+:\d+', '', url_high_1indexed)
+            url_full_res_0indexed = re.sub(r'/resize:fill:\d+:\d+:\d+', '', url_high_0indexed)
+            frame_urls_to_try.append(("full_res_1indexed", url_full_res_1indexed))
+            frame_urls_to_try.append(("full_res_0indexed", url_full_res_0indexed))
+          else:
+            # Just high resolution with original frame
+            frame_urls_to_try.append(("high_resolution", url_high_res))
+          
+          # Strategy 3: Fallback to original low-res (last resort - same frame always)
+          frame_urls_to_try.append(("original_low_res_fallback", preview_url))
+          
+          # Try each URL until one works
+          print(f"  Will try {len(frame_urls_to_try)} URL strategies:")
+          for i, (strategy, url) in enumerate(frame_urls_to_try):
+            print(f"    {i+1}. {strategy}: {url}")
+          
+          frame_url = frame_urls_to_try[0][1]  # Start with the first one
+          current_strategy_index = 0
+        
+        if frame_urls_to_try:
+          print(f"  Prepared {len(frame_urls_to_try)} URL strategies to try")
+          
+          # Create canvas with video dimensions
+          temp_canvas = document.createElement('canvas')
+          temp_canvas.width = video_width
+          temp_canvas.height = video_height
+          temp_ctx = temp_canvas.getContext('2d')
+          
+          # Create image element to load the frame
+          frame_img = document.createElement('img')
+          frame_img.crossOrigin = 'anonymous'  # Allow cross-origin for processing
+          
+          def on_frame_loaded(event=None):
+            strategy_name = frame_urls_to_try[current_strategy_index][0]
+            successful_url = frame_urls_to_try[current_strategy_index][1]
+            print(f"  ✅ Frame image loaded successfully using strategy: {strategy_name}")
+            print(f"  ✅ Successful URL: {successful_url}")
+            try:
+              # Draw the frame to our canvas
+              temp_ctx.drawImage(frame_img, 0, 0, video_width, video_height)
+              print("  Frame drawn to canvas!")
+              
+              # Set up for CLAHE processing
+              img_cvs = temp_canvas
+              img_ctx = temp_ctx
+              print("  Canvas ready for Histogram Equalization processing!")
+              
+              # Continue with histogram equalization processing now that frame is loaded
+              process_histogram_equalization_with_canvas(img_cvs, img_ctx, app, cur_img, mode)
+              
+              # After histogram equalization processing, display processed frame in our app interface
+              try:
+                print("  🖼️ Displaying processed frame in app interface...")
+                
+                # Convert processed canvas to data URL
+                processed_data_url = temp_canvas.toDataURL('image/png')
+                
+                # Update our display elements
+                display_img = document.getElementById('processed-frame-display')
+                status_div = document.getElementById('processed-frame-status')
+                
+                if display_img and status_div:
+                  # Show the processed image
+                  display_img.src = processed_data_url
+                  display_img.style.display = 'block'  # Make it visible
+                  
+                  # Update status
+                  status_div.textContent = f"✅ Processed frame {context.frame} ({video_width}x{video_height})"
+                  status_div.style.color = '#28a745'  # Green color for success
+                  
+                  print(f"    ✅ Updated app display with processed frame!")
+                else:
+                  print(f"    ❌ Could not find display elements in app interface")
+                  
+              except Exception as e:
+                print(f"  ❌ Error updating app display: {e}")
+              
+            except Exception as e:
+              print(f"  Error drawing frame to canvas: {e}")
+          
+          def on_frame_error(event=None):
+            nonlocal current_strategy_index
+            current_strategy_index += 1
+            
+            if current_strategy_index < len(frame_urls_to_try):
+              strategy, next_url = frame_urls_to_try[current_strategy_index]
+              print(f"  ❌ Failed to load with strategy {current_strategy_index}. Trying strategy {current_strategy_index + 1}: {strategy}")
+              print(f"  🎯 FRAME {context.frame} FALLBACK URL: {next_url}")
+              frame_img.src = next_url  # Try the next URL
+            else:
+              print("  ❌ All URL strategies failed - cannot process video")
+          
+          # Set up image loading with fallback mechanism
+          frame_img.onload = on_frame_loaded
+          frame_img.onerror = on_frame_error
+          
+          # Start with the first strategy
+          strategy_name, first_url = frame_urls_to_try[0]
+          print(f"  Starting with strategy 1: {strategy_name}")
+          print(f"  🎯 FRAME {current_frame} URL: {first_url}")
+          frame_img.src = first_url
+          
+          print("  Canvas created, waiting for frame to load...")
+          return  # Exit here - processing continues in onload callback
+          
+        else:
+          print("❌ No frame URL available")
+          return
+          
+      except Exception as e:
+        print(f"❌ Error creating video canvas: {e}")
+        return
+    
   else:
     print("ERROR: Unknown media type - neither image nor video format recognized")
     return
