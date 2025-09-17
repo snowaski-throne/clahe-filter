@@ -388,11 +388,28 @@ def main(mode='process'):
           match = re.search(frame_pattern, modified_url)
           if match:
             quality = match.group(1)  # e.g., "33p"
-            original_frame = match.group(2)  # e.g., "1"
-            # Replace with current frame (add 1 since frames might be 1-indexed)
-            new_frame = current_frame + 1
+            original_frame = int(match.group(2))  # e.g., "1"
+            
+            # Try different frame indexing strategies
+            # Strategy 1: 1-indexed (context.frame=0 -> URL frame=1)
+            new_frame_1indexed = current_frame + 1
+            # Strategy 2: 0-indexed (context.frame=0 -> URL frame=0)  
+            new_frame_0indexed = current_frame
+            
+            # For frame 0, try both strategies
+            if current_frame == 0:
+              # Try 0-indexed first
+              new_frame = new_frame_0indexed
+              print(f"  Trying 0-indexed: frame {current_frame} -> URL frame {new_frame}")
+            else:
+              # For other frames, use 1-indexed
+              new_frame = new_frame_1indexed
+              print(f"  Using 1-indexed: frame {current_frame} -> URL frame {new_frame}")
+              
             modified_url = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame}/', modified_url)
             print(f"  Adjusted frame from {original_frame} to {new_frame} for context.frame={current_frame}")
+          else:
+            print(f"  Could not find frame pattern in URL")
           
           frame_url = modified_url
           print(f"  Modified URL: {frame_url}")
@@ -410,7 +427,7 @@ def main(mode='process'):
           frame_img = document.createElement('img')
           frame_img.crossOrigin = 'anonymous'  # Allow cross-origin for processing
           
-          def on_frame_loaded():
+          def on_frame_loaded(event=None):
             print("  Frame image loaded successfully!")
             try:
               # Draw the frame to our canvas
@@ -428,7 +445,7 @@ def main(mode='process'):
             except Exception as e:
               print(f"  Error drawing frame to canvas: {e}")
           
-          def on_frame_error():
+          def on_frame_error(event=None):
             print("  ❌ Error loading frame image - cannot process video")
           
           # Set up image loading
