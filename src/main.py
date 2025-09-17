@@ -1,4 +1,4 @@
-from js import ImageData, Object, slyApp, JSON
+from js import ImageData, Object, slyApp, JSON, Date
 from pyodide.ffi import create_proxy
 import numpy as np
 import cv2
@@ -130,8 +130,33 @@ def main(mode='process'):
 
   cur_img = getattr(store.state.videos.all, str(context.imageId))
   
-  print(f"Processing media ID: {context.imageId}")
-  print(f"Current frame: {context.frame}")
+  # Enhanced debugging for frame tracking
+  print(f"\n🔍 FRAME DEBUGGING:")
+  print(f"  Processing media ID: {context.imageId}")
+  print(f"  Current frame: {context.frame}")
+  
+  # Check if we have previous frame tracking
+  if not hasattr(state, 'lastProcessedFrame') or not hasattr(state, 'lastProcessedImageId'):
+    state.lastProcessedFrame = -1
+    state.lastProcessedImageId = -1
+    print(f"  Initializing frame tracking")
+  
+  # Initialize frame-to-image-ID mapping if not exists
+  if not hasattr(state, 'frameToImageIdMapping'):
+    state.frameToImageIdMapping = None
+    print(f"  Initializing frame-to-image-ID mapping")
+  
+  # Detect frame/video changes
+  frame_changed = state.lastProcessedFrame != context.frame
+  video_changed = state.lastProcessedImageId != context.imageId
+  
+  print(f"  Last processed: frame={state.lastProcessedFrame}, imageId={state.lastProcessedImageId}")
+  print(f"  Frame changed: {frame_changed}")
+  print(f"  Video changed: {video_changed}")
+  
+  # Update tracking
+  state.lastProcessedFrame = context.frame
+  state.lastProcessedImageId = context.imageId
   
   # Check if this is a video or image and handle accordingly
   has_sources = hasattr(cur_img, 'sources') and cur_img.sources and len(cur_img.sources) > 0
@@ -145,8 +170,8 @@ def main(mode='process'):
   if has_sources:
     # Handle images - use existing logic
     print("Processing as IMAGE")
-  img_src = cur_img.sources[0]
-  img_cvs = img_src.imageData
+    img_src = cur_img.sources[0]
+    img_cvs = img_src.imageData
     img_ctx = img_cvs.getContext("2d")
     print(f"Image canvas: {img_cvs.width}x{img_cvs.height}")
     
@@ -277,9 +302,9 @@ def main(mode='process'):
         except Exception as e:
           print(f"  Error searching store.{key}: {e}")
     
-    # Test frame-level sources approach (like images but per frame)
+    # Test frame-level sources approach AND get frame-specific image IDs
     if not video_canvas:
-      print(f"\n  Testing frame-level sources approach:")
+      print(f"\n  Testing frame-level sources approach and extracting image IDs:")
       try:
         current_frame = context.frame
         print(f"  Trying cur_img[{current_frame}].sources...")
@@ -306,6 +331,39 @@ def main(mode='process'):
         if frame_obj:
           print(f"    ✅ Found frame object: {type(frame_obj)}")
           
+          # Extract image ID for this frame
+          frame_image_id = None
+          try:
+            # Try common properties for image ID
+            if hasattr(frame_obj, 'id'):
+              frame_image_id = getattr(frame_obj, 'id')
+              print(f"    🆔 Frame image ID (from .id): {frame_image_id}")
+            elif hasattr(frame_obj, 'imageId'):
+              frame_image_id = getattr(frame_obj, 'imageId')
+              print(f"    🆔 Frame image ID (from .imageId): {frame_image_id}")
+            elif hasattr(frame_obj, 'entityId'):
+              frame_image_id = getattr(frame_obj, 'entityId')
+              print(f"    🆔 Frame image ID (from .entityId): {frame_image_id}")
+            else:
+              # Debug all properties to find image ID
+              try:
+                frame_keys = Object.keys(frame_obj) if str(type(frame_obj)) == "<class 'pyodide.ffi.JsProxy'>" else dir(frame_obj)
+                print(f"    Frame properties: {frame_keys}")
+                for key in frame_keys:
+                  if 'id' in key.lower():
+                    value = getattr(frame_obj, key)
+                    print(f"      {key}: {value}")
+              except:
+                print(f"    Could not get frame properties")
+          except Exception as e:
+            print(f"    Error extracting frame image ID: {e}")
+          
+          # Store the image ID for later use in URL generation
+          if frame_image_id:
+            # Store in global/state for URL generation
+            state.currentFrameImageId = frame_image_id
+            print(f"    ✅ Stored frame image ID: {frame_image_id}")
+          
           # Check if frame has sources like images do
           if hasattr(frame_obj, 'sources'):
             sources = getattr(frame_obj, 'sources')
@@ -322,14 +380,55 @@ def main(mode='process'):
                 print(f"    ❌ Frame source has no imageData")
             else:
               print(f"    ❌ Frame sources is empty")
-  else:
+          else:
             print(f"    ❌ Frame has no sources property")
-            # Debug what the frame object does have
-            try:
-              frame_keys = Object.keys(frame_obj) if str(type(frame_obj)) == "<class 'pyodide.ffi.JsProxy'>" else dir(frame_obj)
-              print(f"    Frame properties: {frame_keys}")
-            except:
-              print(f"    Could not get frame properties")
+            
+        else:
+          print(f"    ❌ Could not access frame {current_frame}")
+          
+          # Try building a complete frame-to-image-ID mapping
+          print(f"    🔄 Attempting to build complete frame mapping...")
+          try:
+            frame_mapping = {}
+            
+            # Try different access patterns for all frames
+            if hasattr(cur_img, 'frames'):
+              frames_obj = cur_img.frames
+              print(f"      Found frames object: {type(frames_obj)}")
+              
+              try:
+                frame_keys = Object.keys(frames_obj) if str(type(frames_obj)) == "<class 'pyodide.ffi.JsProxy'>" else range(cur_img.fileMeta.framesCount)
+                print(f"      Frame keys/indices: {list(frame_keys)[:10]}...")  # Show first 10
+                
+                for frame_key in frame_keys:
+                  try:
+                    frame_obj = getattr(frames_obj, str(frame_key))
+                    if hasattr(frame_obj, 'id'):
+                      frame_mapping[int(frame_key)] = getattr(frame_obj, 'id')
+                    elif hasattr(frame_obj, 'imageId'):
+                      frame_mapping[int(frame_key)] = getattr(frame_obj, 'imageId')
+                    elif hasattr(frame_obj, 'entityId'):
+                      frame_mapping[int(frame_key)] = getattr(frame_obj, 'entityId')
+                  except Exception as e:
+                    pass  # Skip problematic frames
+                    
+                print(f"      Built frame mapping with {len(frame_mapping)} entries")
+                if len(frame_mapping) > 0:
+                  # Show a few examples
+                  sample_items = list(frame_mapping.items())[:3]
+                  print(f"      Sample mappings: {sample_items}")
+                  
+                  # Store the mapping and get current frame's image ID
+                  state.frameToImageIdMapping = frame_mapping
+                  if current_frame in frame_mapping:
+                    state.currentFrameImageId = frame_mapping[current_frame]
+                    print(f"      ✅ Found image ID for frame {current_frame}: {frame_mapping[current_frame]}")
+                  
+              except Exception as e:
+                print(f"      Error building frame mapping: {e}")
+            
+          except Exception as e:
+            print(f"    Error in frame mapping attempt: {e}")
         
       except Exception as e:
         print(f"  Error testing frame-level approach: {e}")
@@ -403,81 +502,111 @@ def main(mode='process'):
           frame_urls_to_try = []
           
           import re
-          frame_pattern = r'videoframe/([^/]+)/(\d+)/'
+          frame_pattern = r'videoframe/([^/]+)/(\d+)/(\d+)'
           match = re.search(frame_pattern, preview_url)
           
           print(f"  🔍 Analyzing preview URL for frame pattern:")
           print(f"    URL: {preview_url}")
           if match:
-            original_frame_str = match.group(2)
             quality = match.group(1)
-            print(f"    Found frame pattern: quality={quality}, original_frame={original_frame_str}")
+            original_frame_num = int(match.group(2))
+            original_image_id = match.group(3)
+            print(f"    Found frame pattern: quality={quality}, frame={original_frame_num}, imageId={original_image_id}")
           else:
             print(f"    ❌ No frame pattern found in URL!")
           
-          # Check video metadata for frame information
-          try:
-            print(f"  📊 Video metadata analysis:")
-            print(f"    fileMeta.framesCount: {cur_img.fileMeta.framesCount}")
-            print(f"    fileMeta.duration: {cur_img.fileMeta.duration}")
-            if hasattr(cur_img.fileMeta, 'framesToTimecodes'):
-              timecodes = cur_img.fileMeta.framesToTimecodes
-              print(f"    framesToTimecodes length: {len(timecodes) if hasattr(timecodes, '__len__') else 'unknown'}")
-              if hasattr(timecodes, '__len__') and len(timecodes) > current_frame:
-                current_timecode = timecodes[current_frame]
-                print(f"    Frame {current_frame} timecode: {current_timecode}")
-          except Exception as e:
-            print(f"    Error analyzing video metadata: {e}")
+          # Get the correct image ID for the current frame
+          current_frame_image_id = None
           
-          # Strategy 1: High resolution with correct frame (PRIORITIZE FRAME-AWARE STRATEGIES)
+          # Try using previously extracted frame image ID first
+          if hasattr(state, 'currentFrameImageId') and state.currentFrameImageId:
+            current_frame_image_id = state.currentFrameImageId
+            print(f"    🆔 Using extracted frame image ID: {current_frame_image_id}")
+          
+          # Try using frame mapping if available
+          elif hasattr(state, 'frameToImageIdMapping') and state.frameToImageIdMapping and current_frame in state.frameToImageIdMapping:
+            current_frame_image_id = state.frameToImageIdMapping[current_frame]
+            print(f"    🆔 Using frame mapping for image ID: {current_frame_image_id}")
+          
+          # Try to extract image ID directly from store.state.videos.all
+          elif hasattr(store.state.videos, 'all'):
+            print(f"    🔍 Trying to find frame image ID in videos.all...")
+            try:
+              videos_all = store.state.videos.all
+              all_keys = Object.keys(videos_all)
+              
+              # Look for image IDs that might correspond to video frames
+              frame_image_ids = []
+              for key in all_keys:
+                try:
+                  item = getattr(videos_all, key)
+                  # Check if this is a frame from our current video
+                  if hasattr(item, 'videoId') and hasattr(item, 'frame'):
+                    if getattr(item, 'videoId') == context.imageId and getattr(item, 'frame') == current_frame:
+                      current_frame_image_id = key
+                      print(f"    🎯 Found frame image ID in videos.all: {current_frame_image_id}")
+                      break
+                except:
+                  pass
+            except Exception as e:
+              print(f"    Error searching videos.all: {e}")
+          
+          # Final fallback
+          if not current_frame_image_id:
+            current_frame_image_id = original_image_id if match else context.imageId
+            print(f"    🆔 Fallback to original image ID: {current_frame_image_id} (may show wrong frame)")
+          
+          # Strategy 1: High resolution with correct frame and image ID
           url_high_res = preview_url.replace('resize:fill:150:0:0', f'resize:fill:{video_width}:{video_height}:0')
-          if match:
-            # Try both frame indexing strategies at high resolution
+          if match and current_frame_image_id:
             quality = match.group(1)
-            original_frame_num = int(match.group(2))
             
-            # 1-indexed frame at high res (try this first)
+            print(f"    🎯 FRAME URL GENERATION DETAILS:")
+            print(f"       Current context.frame: {current_frame}")
+            print(f"       Current frame image ID: {current_frame_image_id}")
+            print(f"       Quality: {quality}")
+            
+            # 1-indexed frame with correct image ID (try this first)
             new_frame_1indexed = current_frame + 1
-            url_high_1indexed = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame_1indexed}/', url_high_res)
-            frame_urls_to_try.append(("high_res_1indexed", url_high_1indexed))
-            print(f"    Generated 1-indexed URL: {original_frame_num} -> {new_frame_1indexed}")
+            url_high_1indexed = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame_1indexed}/{current_frame_image_id}', url_high_res)
+            frame_urls_to_try.append(("high_res_1indexed_correct_id", url_high_1indexed))
+            print(f"       1-indexed URL: {url_high_1indexed}")
             
-            # 0-indexed frame at high res
+            # 0-indexed frame with correct image ID
             new_frame_0indexed = current_frame
-            url_high_0indexed = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame_0indexed}/', url_high_res)
-            frame_urls_to_try.append(("high_res_0indexed", url_high_0indexed))
-            print(f"    Generated 0-indexed URL: {original_frame_num} -> {new_frame_0indexed}")
+            url_high_0indexed = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame_0indexed}/{current_frame_image_id}', url_high_res)
+            frame_urls_to_try.append(("high_res_0indexed_correct_id", url_high_0indexed))
+            print(f"       0-indexed URL: {url_high_0indexed}")
             
-            # Strategy 2: Full resolution with correct frame (remove resize but keep frame changes)
+            # Strategy 2: Full resolution with correct frame and image ID
             url_full_res_1indexed = re.sub(r'/resize:fill:\d+:\d+:\d+', '', url_high_1indexed)
             url_full_res_0indexed = re.sub(r'/resize:fill:\d+:\d+:\d+', '', url_high_0indexed)
-            frame_urls_to_try.append(("full_res_1indexed", url_full_res_1indexed))
-            frame_urls_to_try.append(("full_res_0indexed", url_full_res_0indexed))
-            
-            # Strategy 3: Try using timecode instead of frame number (experimental)
-            try:
-              if hasattr(cur_img.fileMeta, 'framesToTimecodes'):
-                timecodes = cur_img.fileMeta.framesToTimecodes
-                if hasattr(timecodes, '__len__') and len(timecodes) > current_frame:
-                  current_timecode = timecodes[current_frame]
-                  # Convert timecode to a format that might work in URL (remove decimal)
-                  timecode_int = int(current_timecode * 1000)  # Convert to milliseconds
-                  url_timecode = re.sub(frame_pattern, f'videoframe/{quality}/{timecode_int}/', url_high_res)
-                  frame_urls_to_try.append(("timecode_based", url_timecode))
-                  print(f"    Generated timecode URL: {current_timecode}s -> {timecode_int}ms")
-            except Exception as e:
-              print(f"    Could not generate timecode URL: {e}")
+            frame_urls_to_try.append(("full_res_1indexed_correct_id", url_full_res_1indexed))
+            frame_urls_to_try.append(("full_res_0indexed_correct_id", url_full_res_0indexed))
           else:
             # Just high resolution with original frame
             frame_urls_to_try.append(("high_resolution", url_high_res))
           
-          # Strategy 4: Fallback to original low-res (last resort - same frame always)
+          # Strategy 3: Fallback to original low-res (last resort - same frame always)
           frame_urls_to_try.append(("original_low_res_fallback", preview_url))
           
+          # Add cache-busting timestamps to all URLs to prevent browser caching
+          cache_buster = int(Date.new().getTime())  # Current timestamp
+          frame_urls_with_cache_busting = []
+          
+          for strategy, url in frame_urls_to_try:
+            # Add cache buster as query parameter
+            separator = '&' if '?' in url else '?'
+            cache_busted_url = f"{url}{separator}cb={cache_buster}&frame_req={current_frame}"
+            frame_urls_with_cache_busting.append((strategy, cache_busted_url))
+          
+          frame_urls_to_try = frame_urls_with_cache_busting
+          
           # Try each URL until one works
-          print(f"  Will try {len(frame_urls_to_try)} URL strategies:")
+          print(f"  Will try {len(frame_urls_to_try)} URL strategies (with cache-busting):")
           for i, (strategy, url) in enumerate(frame_urls_to_try):
-            print(f"    {i+1}. {strategy}: {url}")
+            print(f"    {i+1}. {strategy}")
+            print(f"        URL: {url}")
           
           frame_url = frame_urls_to_try[0][1]  # Start with the first one
           current_strategy_index = 0
@@ -491,9 +620,6 @@ def main(mode='process'):
           temp_canvas.height = video_height
           temp_ctx = temp_canvas.getContext('2d')
           
-          # Store pattern for callback access
-          pattern_for_callback = frame_pattern
-          
           # Create image element to load the frame
           frame_img = document.createElement('img')
           frame_img.crossOrigin = 'anonymous'  # Allow cross-origin for processing
@@ -501,37 +627,28 @@ def main(mode='process'):
           def on_frame_loaded(event=None):
             strategy_name = frame_urls_to_try[current_strategy_index][0]
             successful_url = frame_urls_to_try[current_strategy_index][1]
-            print(f"  ✅ Frame image loaded successfully using strategy: {strategy_name}")
-            print(f"  ✅ Successful URL: {successful_url}")
             
-            # Check what frame number is actually in the successful URL
-            url_frame_match = re.search(pattern_for_callback, successful_url)
-            url_frame_num = url_frame_match.group(2) if url_frame_match else 'NOT FOUND'
-            print(f"  🔍 DEBUGGING: Expected frame {current_frame}, URL contains frame: {url_frame_num}")
-            
-            # Calculate a simple hash of the image to see if frames are actually different
-            try:
-              # Get a small sample of pixel data to create a "fingerprint"
-              sample_data = frame_img.width * frame_img.height
-              print(f"  🖼️ Image fingerprint: {frame_img.width}x{frame_img.height} = {sample_data} pixels")
-              
-              # Store this info for comparison
-              if not hasattr(frame_img, '_frame_fingerprints'):
-                frame_img._frame_fingerprints = {}
-              frame_img._frame_fingerprints[current_frame] = sample_data
-              
-              # Check if we've seen this exact same fingerprint before on a different frame
-              for prev_frame, prev_fingerprint in frame_img._frame_fingerprints.items():
-                if prev_frame != current_frame and prev_fingerprint == sample_data:
-                  print(f"  ⚠️ WARNING: Frame {current_frame} has same fingerprint as frame {prev_frame} - likely same image!")
-              
-            except Exception as e:
-              print(f"  ❌ Error calculating image fingerprint: {e}")
+            print(f"\n🖼️ IMAGE LOAD SUCCESS:")
+            print(f"  Strategy: {strategy_name}")
+            print(f"  URL: {successful_url}")
+            print(f"  Image dimensions: {frame_img.naturalWidth}x{frame_img.naturalHeight}")
+            print(f"  Expected frame: {context.frame}")
             
             try:
+              # Clear the canvas first to ensure we're drawing fresh content
+              temp_ctx.clearRect(0, 0, video_width, video_height)
+              
               # Draw the frame to our canvas
               temp_ctx.drawImage(frame_img, 0, 0, video_width, video_height)
-              print("  Frame drawn to canvas!")
+              print(f"  ✅ Frame drawn to canvas ({video_width}x{video_height})")
+              
+              # Get a sample of the raw image data to verify content is different
+              try:
+                sample_data = temp_ctx.getImageData(0, 0, min(50, video_width), min(50, video_height))
+                pixel_sum = sum(sample_data.data[i] for i in range(0, min(200, len(sample_data.data)), 4))  # Sum red pixels only
+                print(f"  🔍 Image content signature (pixel sum): {pixel_sum}")
+              except Exception as e:
+                print(f"  ⚠️ Could not get content signature: {e}")
               
               # Set up for CLAHE processing
               img_cvs = temp_canvas
@@ -548,20 +665,23 @@ def main(mode='process'):
                 # Convert processed canvas to data URL
                 processed_data_url = temp_canvas.toDataURL('image/png')
                 
+                # Add a timestamp to the processed image URL to prevent caching
+                processed_data_url_with_timestamp = f"{processed_data_url}#t={Date.new().getTime()}"
+                
                 # Update our display elements
                 display_img = document.getElementById('processed-frame-display')
                 status_div = document.getElementById('processed-frame-status')
                 
                 if display_img and status_div:
                   # Show the processed image
-                  display_img.src = processed_data_url
+                  display_img.src = processed_data_url_with_timestamp
                   display_img.style.display = 'block'  # Make it visible
                   
-                  # Update status
-                  status_div.textContent = f"✅ Processed frame {context.frame} ({video_width}x{video_height})"
+                  # Update status with more details
+                  status_div.textContent = f"✅ Processed frame {context.frame} ({video_width}x{video_height}) - Strategy: {strategy_name}"
                   status_div.style.color = '#28a745'  # Green color for success
                   
-                  print(f"    ✅ Updated app display with processed frame!")
+                  print(f"    ✅ Updated app display with processed frame (strategy: {strategy_name})!")
                 else:
                   print(f"    ❌ Could not find display elements in app interface")
                   
@@ -569,19 +689,28 @@ def main(mode='process'):
                 print(f"  ❌ Error updating app display: {e}")
               
             except Exception as e:
-              print(f"  Error drawing frame to canvas: {e}")
+              print(f"  ❌ Error drawing frame to canvas: {e}")
           
           def on_frame_error(event=None):
-            nonlocal current_strategy_index, current_frame
+            nonlocal current_strategy_index
+            failed_strategy = frame_urls_to_try[current_strategy_index][0]
+            failed_url = frame_urls_to_try[current_strategy_index][1]
+            
+            print(f"\n❌ IMAGE LOAD FAILED:")
+            print(f"  Failed strategy: {failed_strategy}")
+            print(f"  Failed URL: {failed_url}")
+            print(f"  Frame: {context.frame}")
+            
             current_strategy_index += 1
             
             if current_strategy_index < len(frame_urls_to_try):
               strategy, next_url = frame_urls_to_try[current_strategy_index]
-              print(f"  ❌ Failed to load with strategy {current_strategy_index}. Trying strategy {current_strategy_index + 1}: {strategy}")
-              print(f"  🎯 FRAME {current_frame} FALLBACK URL: {next_url}")
+              print(f"  🔄 Trying fallback strategy {current_strategy_index + 1}: {strategy}")
+              print(f"  🎯 Next URL: {next_url}")
               frame_img.src = next_url  # Try the next URL
             else:
-              print("  ❌ All URL strategies failed - cannot process video")
+              print("  💀 All URL strategies failed - cannot process video")
+              print(f"  Attempted {len(frame_urls_to_try)} strategies for frame {context.frame}")
           
           # Set up image loading with fallback mechanism
           frame_img.onload = on_frame_loaded
@@ -589,8 +718,11 @@ def main(mode='process'):
           
           # Start with the first strategy
           strategy_name, first_url = frame_urls_to_try[0]
-          print(f"  Starting with strategy 1: {strategy_name}")
-          print(f"  🎯 FRAME {current_frame} URL: {first_url}")
+          print(f"\n🚀 STARTING IMAGE LOAD:")
+          print(f"  Strategy 1: {strategy_name}")
+          print(f"  Frame: {current_frame}")
+          print(f"  URL: {first_url}")
+          print(f"  Cache buster: cb={cache_buster}")
           frame_img.src = first_url
           
           print("  Canvas created, waiting for frame to load...")
