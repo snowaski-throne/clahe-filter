@@ -406,6 +406,15 @@ def main(mode='process'):
           frame_pattern = r'videoframe/([^/]+)/(\d+)/'
           match = re.search(frame_pattern, preview_url)
           
+          print(f"  🔍 Analyzing preview URL for frame pattern:")
+          print(f"    URL: {preview_url}")
+          if match:
+            original_frame_str = match.group(2)
+            quality = match.group(1)
+            print(f"    Found frame pattern: quality={quality}, original_frame={original_frame_str}")
+          else:
+            print(f"    ❌ No frame pattern found in URL!")
+          
           # Strategy 1: Try to get original full resolution (remove resize parameters completely)
           url_original_full = re.sub(r'/resize:fill:\d+:\d+:\d+', '', preview_url)
           if url_original_full != preview_url:
@@ -416,16 +425,19 @@ def main(mode='process'):
           if match:
             # Try both frame indexing strategies at high resolution
             quality = match.group(1)
+            original_frame_num = int(match.group(2))
             
             # 1-indexed frame at high res
             new_frame_1indexed = current_frame + 1
             url_high_1indexed = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame_1indexed}/', url_high_res)
             frame_urls_to_try.append(("high_res_1indexed", url_high_1indexed))
+            print(f"    Generated 1-indexed URL: {original_frame_num} -> {new_frame_1indexed}")
             
             # 0-indexed frame at high res
             new_frame_0indexed = current_frame
             url_high_0indexed = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame_0indexed}/', url_high_res)
             frame_urls_to_try.append(("high_res_0indexed", url_high_0indexed))
+            print(f"    Generated 0-indexed URL: {original_frame_num} -> {new_frame_0indexed}")
           else:
             # Just high resolution with original frame
             frame_urls_to_try.append(("high_resolution", url_high_res))
@@ -459,7 +471,10 @@ def main(mode='process'):
           frame_img.crossOrigin = 'anonymous'  # Allow cross-origin for processing
           
           def on_frame_loaded(event=None):
-            print("  Frame image loaded successfully!")
+            strategy_name = frame_urls_to_try[current_strategy_index][0]
+            successful_url = frame_urls_to_try[current_strategy_index][1]
+            print(f"  ✅ Frame image loaded successfully using strategy: {strategy_name}")
+            print(f"  ✅ Successful URL: {successful_url}")
             try:
               # Draw the frame to our canvas
               temp_ctx.drawImage(frame_img, 0, 0, video_width, video_height)
@@ -510,7 +525,7 @@ def main(mode='process'):
             if current_strategy_index < len(frame_urls_to_try):
               strategy, next_url = frame_urls_to_try[current_strategy_index]
               print(f"  ❌ Failed to load with strategy {current_strategy_index}. Trying strategy {current_strategy_index + 1}: {strategy}")
-              print(f"    Next URL: {next_url}")
+              print(f"  🎯 FRAME {current_frame} FALLBACK URL: {next_url}")
               frame_img.src = next_url  # Try the next URL
             else:
               print("  ❌ All URL strategies failed - cannot process video")
@@ -522,6 +537,7 @@ def main(mode='process'):
           # Start with the first strategy
           strategy_name, first_url = frame_urls_to_try[0]
           print(f"  Starting with strategy 1: {strategy_name}")
+          print(f"  🎯 FRAME {current_frame} URL: {first_url}")
           frame_img.src = first_url
           
           print("  Canvas created, waiting for frame to load...")
