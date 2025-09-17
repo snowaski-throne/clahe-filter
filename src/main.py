@@ -2,6 +2,7 @@ from js import ImageData, Object, slyApp, JSON, Date
 from pyodide.ffi import create_proxy
 import numpy as np
 import cv2
+import supervisely as sly
 
 
 def dump(obj):
@@ -48,6 +49,53 @@ def debug_js_object(obj, name="object"):
     print(f"vars() failed: {e}")
   
   print(f"=== END DEBUG {name} ===\n")
+
+def get_video_frame_using_api(video_id, frame_index, api_instance):
+  """Get actual video frame data using Supervisely VideoAnnotation API"""
+  try:
+    print(f"  🔄 Fetching frame {frame_index} using VideoAnnotation API...")
+    
+    # Download video annotation (contains frame metadata)
+    ann_json = api_instance.video.annotation.download(video_id)
+    
+    # Get project meta for VideoAnnotation conversion
+    video_info = api_instance.video.get_info_by_id(video_id)
+    project_id = video_info.project_id
+    project_meta = sly.ProjectMeta.from_json(api_instance.project.get_meta(project_id))
+    
+    # Convert to VideoAnnotation object
+    ann = sly.VideoAnnotation.from_json(ann_json, project_meta, key_id_map=sly.KeyIdMap())
+    
+    print(f"    ✅ Video annotation loaded: {len(ann.figures)} figures")
+    
+    # Method 1: Try to get frame image directly from API
+    try:
+      # Get frame image from video
+      frame_image_np = api_instance.video.frame.download_np(video_id, frame_index)
+      print(f"    ✅ Downloaded frame {frame_index} as numpy array: {frame_image_np.shape}")
+      return frame_image_np, True
+      
+    except Exception as e:
+      print(f"    ❌ Could not download frame directly: {e}")
+    
+    # Method 2: Try alternative frame access methods
+    try:
+      # Check if frame has associated image entities
+      for figure in ann.figures:
+        if figure.frame_index == frame_index:
+          print(f"    Found figure at frame {frame_index}: {figure.video_object.obj_class.name}")
+          # Could potentially extract frame data from figure metadata
+      
+      print(f"    ⚠️ Frame {frame_index} annotation available but no direct image access")
+      return None, False
+      
+    except Exception as e:
+      print(f"    ❌ Error accessing frame annotation: {e}")
+      return None, False
+    
+  except Exception as e:
+    print(f"  ❌ Error in VideoAnnotation API access: {e}")
+    return None, False
 
 def process_histogram_equalization_with_canvas(img_cvs, img_ctx, app, cur_img, mode='process'):
   """Apply histogram equalization processing to the given canvas"""
@@ -324,55 +372,146 @@ def main(mode='process'):
         
       else:
         print("❌ Could not find video player elements in DOM")
-        print("💡 VideoAnnotation API approach needed")
-        print("   Reference: https://developer.supervisely.com/app-development/apps-with-gui/video-labeling-tool-app")
+        print("🔄 Attempting VideoAnnotation API access...")
         
-        # Create placeholder for now
-        temp_canvas = document.createElement('canvas')
-        temp_canvas.width = video_width  
-        temp_canvas.height = video_height
-        temp_ctx = temp_canvas.getContext('2d')
-        
-        # Fill with placeholder
-        temp_ctx.fillStyle = '#f0f0f0'
-        temp_ctx.fillRect(0, 0, video_width, video_height)
-        temp_ctx.fillStyle = '#333'
-        temp_ctx.font = '24px Arial'
-        temp_ctx.textAlign = 'center'
-        temp_ctx.fillText(f"Frame {current_frame}", video_width/2, video_height/2 - 12)
-        temp_ctx.fillText(f"({video_width}x{video_height})", video_width/2, video_height/2 + 12)
-        
-        print(f"  Created placeholder canvas for frame {current_frame}")
-        
-        # Use placeholder for processing demonstration
-        img_cvs = temp_canvas
-        img_ctx = temp_ctx
-        
-        # Still process it to show the workflow works
-        process_histogram_equalization_with_canvas(img_cvs, img_ctx, app, cur_img, mode)
-        
-        # Display in our app interface
+        # Try to access frame using Supervisely VideoAnnotation API
         try:
-          processed_data_url = img_cvs.toDataURL('image/png')
+          # Initialize Supervisely API
+          print("  Initializing Supervisely API...")
           
-          display_img = document.getElementById('processed-frame-display')
-          status_div = document.getElementById('processed-frame-status')
+          # Get API credentials from app context or environment
+          api = None
+          try:
+            # Method 1: Try to get API from Supervisely app context
+            if hasattr(slyApp, 'api'):
+              api = slyApp.api
+              print("    ✅ Using API from slyApp.api")
+            elif hasattr(app, 'api'):
+              api = app.api
+              print("    ✅ Using API from app.api")
+            elif hasattr(context, 'api'):
+              api = context.api
+              print("    ✅ Using API from context.api")
+            
+            # Method 2: Try global supervisely API access for client-side apps
+            elif hasattr(slyApp, 'g') and hasattr(slyApp.g, 'api'):
+              api = slyApp.g.api
+              print("    ✅ Using global API from slyApp.g.api")
+            
+            # Method 3: Initialize API with hardcoded credentials
+            else:
+              # Hardcoded Supervisely API credentials
+              SERVER_ADDRESS = "https://app.supervisely.com"
+              API_TOKEN = "zerPjM0yd0UzBXi9EpyaVOjxoiFazNMMSvtWVlS88CL9E5boXbhWMH9k2p32iq5rM9eZ7bAROaf0dCcNNqzk5hmXz67yHFDfkkKqEtXVw8rQLv0YgbhvV2TkA4GOPKYf"  # Replace with your actual token
+              TEAM_ID = 110016
+              WORKSPACE_ID = 124618
+              
+              api = sly.Api(server_address=SERVER_ADDRESS, token=API_TOKEN)
+              print("    ✅ Initialized API with hardcoded credentials")
+              print(f"    Team ID: {TEAM_ID}, Workspace ID: {WORKSPACE_ID}")
+              
+          except Exception as e:
+            print(f"    ❌ Could not initialize API: {e}")
+            api = None
           
-          if display_img and status_div:
-            display_img.src = processed_data_url
-            display_img.style.display = 'block'
+          frame_image_np = None
+          api_success = False
+          
+          if api:
+            video_id = context.imageId  # The video ID
+            frame_image_np, api_success = get_video_frame_using_api(video_id, current_frame, api)
+          
+          if api_success and frame_image_np is not None:
+            print(f"  🎯 SUCCESS: Got actual frame {current_frame} from VideoAnnotation API!")
             
-            status_div.textContent = f"📝 Placeholder for frame {current_frame} - Need VideoAnnotation API access"
-            status_div.style.color = '#ffc107'  # Warning color
+            # Convert numpy array to canvas
+            temp_canvas = document.createElement('canvas')
+            temp_canvas.width = video_width
+            temp_canvas.height = video_height
+            temp_ctx = temp_canvas.getContext('2d')
             
-            print(f"    ✅ Displayed placeholder for frame {current_frame}")
+            # Convert numpy array to ImageData
+            if len(frame_image_np.shape) == 3:
+              # Add alpha channel if missing
+              if frame_image_np.shape[2] == 3:
+                alpha_channel = np.full((frame_image_np.shape[0], frame_image_np.shape[1], 1), 255, dtype=np.uint8)
+                frame_image_np = np.concatenate([frame_image_np, alpha_channel], axis=2)
+            
+            # Flatten and create ImageData
+            flat_data = frame_image_np.flatten()
+            pixels_proxy = create_proxy(flat_data)
+            pixels_buf = pixels_proxy.getBuffer("u8clamped")
+            frame_image_data = ImageData.new(pixels_buf.data, video_width, video_height)
+            
+            # Draw to canvas
+            temp_ctx.putImageData(frame_image_data, 0, 0)
+            
+            # Clean up
+            pixels_proxy.destroy()
+            pixels_buf.release()
+            
+            img_cvs = temp_canvas
+            img_ctx = temp_ctx
+            
+            print(f"    ✅ Frame {current_frame} converted to canvas for processing!")
+            
           else:
-            print(f"    ❌ Could not find display elements")
+            print(f"  ⚠️ VideoAnnotation API not available - using placeholder")
             
+            # Create placeholder when API access fails
+            temp_canvas = document.createElement('canvas')
+            temp_canvas.width = video_width  
+            temp_canvas.height = video_height
+            temp_ctx = temp_canvas.getContext('2d')
+            
+            # Fill with placeholder
+            temp_ctx.fillStyle = '#f0f0f0'
+            temp_ctx.fillRect(0, 0, video_width, video_height)
+            temp_ctx.fillStyle = '#333'
+            temp_ctx.font = '24px Arial'
+            temp_ctx.textAlign = 'center'
+            temp_ctx.fillText(f"Frame {current_frame}", video_width/2, video_height/2 - 12)
+            temp_ctx.fillText(f"(API Access Needed)", video_width/2, video_height/2 + 12)
+            
+            img_cvs = temp_canvas
+            img_ctx = temp_ctx
+            
+            print(f"  Created placeholder canvas for frame {current_frame}")
+          
+          # Process the frame (real or placeholder)
+          process_histogram_equalization_with_canvas(img_cvs, img_ctx, app, cur_img, mode)
+          
+          # Display in our app interface
+          try:
+            processed_data_url = img_cvs.toDataURL('image/png')
+            processed_data_url_with_timestamp = f"{processed_data_url}#t={Date.new().getTime()}"
+            
+            display_img = document.getElementById('processed-frame-display')
+            status_div = document.getElementById('processed-frame-status')
+            
+            if display_img and status_div:
+              display_img.src = processed_data_url_with_timestamp
+              display_img.style.display = 'block'
+              
+              if api_success:
+                status_div.textContent = f"✅ Processed REAL frame {current_frame} ({video_width}x{video_height}) - VideoAnnotation API"
+                status_div.style.color = '#28a745'  # Green for success
+              else:
+                status_div.textContent = f"📝 Processed placeholder for frame {current_frame} - API access needed"
+                status_div.style.color = '#ffc107'  # Warning color
+              
+              print(f"    ✅ Updated app display!")
+            else:
+              print(f"    ❌ Could not find display elements")
+              
+          except Exception as e:
+            print(f"  ❌ Error updating app display: {e}")
+          
+          return
+          
         except Exception as e:
-          print(f"  ❌ Error displaying placeholder: {e}")
-        
-        return
+          print(f"  ❌ Error in VideoAnnotation API approach: {e}")
+          return
         
     except Exception as e:
       print(f"❌ Error accessing video elements: {e}")
