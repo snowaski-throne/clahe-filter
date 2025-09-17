@@ -91,32 +91,80 @@ def main(mode='process'):
     print("Processing as VIDEO")
     print("Searching for video frame canvas...")
     
-    # 1. Robust canvas detection with retries and timing
+    # 1. Comprehensive canvas detection across all contexts
     try:
-      from js import document, setTimeout, Promise
+      from js import document, window, setTimeout, Promise
       import asyncio
       
       def find_video_canvas():
-        """Search for video canvas with detailed logging"""
-        all_canvases = document.querySelectorAll('canvas')
-        print(f"  Searching {len(all_canvases)} canvas elements...")
+        """Search for video canvas with comprehensive debugging"""
+        print(f"  === COMPREHENSIVE CANVAS SEARCH ===")
+        print(f"  Current document: {document}")
+        print(f"  Document URL: {document.URL}")
+        print(f"  Document title: {document.title}")
         
-        for i, canvas in enumerate(all_canvases):
-          print(f"    Canvas {i}: {canvas.width}x{canvas.height}")
-          if canvas.width > 0 and canvas.height > 0:
-            print(f"      id='{canvas.id}', class='{canvas.className}'")
-            print(f"      style: {canvas.style.cssText}")
-            
-            # Check for video player characteristics
-            is_large = canvas.width > 1000 and canvas.height > 1000
-            has_absolute_position = 'position: absolute' in canvas.style.cssText
-            has_negative_z = 'z-index: -1' in canvas.style.cssText
-            
-            print(f"      large_dims: {is_large}, absolute_pos: {has_absolute_position}, negative_z: {has_negative_z}")
-            
-            if is_large or has_absolute_position or has_negative_z:
-              print(f"      ^ FOUND VIDEO CANVAS! {canvas.width}x{canvas.height}")
-              return canvas
+        # 1. Basic canvas search
+        all_canvases = document.querySelectorAll('canvas')
+        print(f"  Main document canvases: {len(all_canvases)}")
+        
+        # 2. Search in iframes
+        iframes = document.querySelectorAll('iframe')
+        print(f"  Found {len(iframes)} iframes")
+        for i, iframe in enumerate(iframes):
+          try:
+            iframe_doc = iframe.contentDocument
+            if iframe_doc:
+              iframe_canvases = iframe_doc.querySelectorAll('canvas')
+              print(f"    Iframe {i}: {len(iframe_canvases)} canvases")
+              for canvas in iframe_canvases:
+                print(f"      Iframe canvas: {canvas.width}x{canvas.height}")
+                if canvas.width > 500:
+                  return canvas
+          except Exception as e:
+            print(f"    Iframe {i}: Access denied - {e}")
+        
+        # 3. Search for alternative elements
+        videos = document.querySelectorAll('video')
+        images = document.querySelectorAll('img')
+        divs = document.querySelectorAll('div[style*="background"]')
+        
+        print(f"  Alternative elements - videos: {len(videos)}, large images: {len([img for img in images if img.width > 500])}, bg divs: {len(divs)}")
+        
+        # 4. Search all elements with dimension properties
+        all_elements = document.querySelectorAll('*')
+        potential_canvases = []
+        for element in all_elements:
+          try:
+            if hasattr(element, 'width') and hasattr(element, 'height'):
+              if element.width > 1000 and element.height > 1000:
+                potential_canvases.append(element)
+          except:
+            pass
+        
+        print(f"  Large elements (>1000px): {len(potential_canvases)}")
+        for i, element in enumerate(potential_canvases):
+          print(f"    Large element {i}: {element.tagName} {element.width}x{element.height}")
+          if element.tagName.lower() == 'canvas':
+            return element
+        
+        # 5. Try to find canvas using different selectors
+        selectors = [
+          'canvas[width]',
+          'canvas[height]', 
+          '[role="img"]',
+          '[data-video]',
+          '.video-canvas',
+          '#video-canvas'
+        ]
+        
+        for selector in selectors:
+          elements = document.querySelectorAll(selector)
+          if len(elements) > 0:
+            print(f"  Found {len(elements)} elements with selector '{selector}'")
+            for element in elements:
+              if hasattr(element, 'getContext'):
+                return element
+        
         return None
       
       # Try immediate search
