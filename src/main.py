@@ -249,9 +249,66 @@ def main(mode='process'):
         except Exception as e:
           print(f"  Error searching store.{key}: {e}")
     
-    # Search for canvas-like properties in the individual video object (fallback)
+    # Test frame-level sources approach (like images but per frame)
     if not video_canvas:
-      print(f"\n  Fallback: Searching cur_img for canvas properties:")
+      print(f"\n  Testing frame-level sources approach:")
+      try:
+        current_frame = context.frame
+        print(f"  Trying cur_img[{current_frame}].sources...")
+        
+        # Try accessing the specific frame
+        frame_obj = None
+        try:
+          # Try numeric indexing
+          frame_obj = cur_img[current_frame]
+          print(f"    cur_img[{current_frame}]: {type(frame_obj)}")
+        except:
+          try:
+            # Try string indexing
+            frame_obj = cur_img[str(current_frame)]
+            print(f"    cur_img['{current_frame}']: {type(frame_obj)}")
+          except:
+            try:
+              # Try accessing from frames property
+              frame_obj = getattr(cur_img.frames, str(current_frame))
+              print(f"    cur_img.frames['{current_frame}']: {type(frame_obj)}")
+            except:
+              print(f"    ❌ Could not access frame {current_frame}")
+        
+        if frame_obj:
+          print(f"    ✅ Found frame object: {type(frame_obj)}")
+          
+          # Check if frame has sources like images do
+          if hasattr(frame_obj, 'sources'):
+            sources = getattr(frame_obj, 'sources')
+            print(f"    ✅ Frame has sources: {type(sources)}, length: {len(sources) if hasattr(sources, '__len__') else 'unknown'}")
+            
+            if sources and len(sources) > 0:
+              frame_src = sources[0]
+              print(f"    ✅ Frame source[0]: {type(frame_src)}")
+              
+              if hasattr(frame_src, 'imageData'):
+                video_canvas = frame_src.imageData
+                print(f"    🎯 FOUND FRAME CANVAS! {type(video_canvas)}")
+              else:
+                print(f"    ❌ Frame source has no imageData")
+            else:
+              print(f"    ❌ Frame sources is empty")
+          else:
+            print(f"    ❌ Frame has no sources property")
+            # Debug what the frame object does have
+            try:
+              frame_keys = Object.keys(frame_obj) if str(type(frame_obj)) == "<class 'pyodide.ffi.JsProxy'>" else dir(frame_obj)
+              print(f"    Frame properties: {frame_keys}")
+            except:
+              print(f"    Could not get frame properties")
+        
+      except Exception as e:
+        print(f"  Error testing frame-level approach: {e}")
+    
+    # Search for canvas-like properties in the individual video object (final fallback)
+    if not video_canvas:
+      print(f"\n  Final fallback: Searching cur_img for canvas properties:")
       all_props = dir(cur_img)
       canvas_props = [prop for prop in all_props if any(term in prop.lower() for term in 
                      ['canvas', 'image', 'source', 'data', 'element', 'frame', 'render', 'display'])]
