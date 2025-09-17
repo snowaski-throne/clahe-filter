@@ -370,52 +370,54 @@ def main(mode='process'):
           preview_url = cur_img.preview
           print(f"  Base preview URL: {preview_url}")
           
-          # Modify URL for current frame and full resolution
+          # Strategy: Try multiple URL approaches in order of likelihood
           current_frame = context.frame
+          frame_urls_to_try = []
           
-          # Replace resolution (150:0:0) with video dimensions (480:360)
-          # Replace frame number with current frame
-          modified_url = preview_url
+          # Strategy 1: Use original URL first (to test if loading mechanism works)
+          frame_urls_to_try.append(("original", preview_url))
           
-          # Fix resolution - replace resize:fill:150:0:0 with actual video dimensions
-          if 'resize:fill:150:0:0' in modified_url:
-            modified_url = modified_url.replace('resize:fill:150:0:0', f'resize:fill:{video_width}:{video_height}:0')
-          
-          # Try to adjust frame number - the URL might have format like videoframe/33p/1/
-          # We need to replace the frame number (1) with current_frame
+          # Strategy 2: Only adjust frame number (keep original resolution)
           import re
           frame_pattern = r'videoframe/([^/]+)/(\d+)/'
-          match = re.search(frame_pattern, modified_url)
+          match = re.search(frame_pattern, preview_url)
           if match:
-            quality = match.group(1)  # e.g., "33p"
-            original_frame = int(match.group(2))  # e.g., "1"
+            quality = match.group(1)
+            original_frame = int(match.group(2))
             
-            # Try different frame indexing strategies
-            # Strategy 1: 1-indexed (context.frame=0 -> URL frame=1)
+            # Try 1-indexed frame (context.frame=0 -> URL frame=1)
             new_frame_1indexed = current_frame + 1
-            # Strategy 2: 0-indexed (context.frame=0 -> URL frame=0)  
-            new_frame_0indexed = current_frame
+            url_1indexed = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame_1indexed}/', preview_url)
+            frame_urls_to_try.append(("frame_1indexed", url_1indexed))
             
-            # For frame 0, try both strategies
+            # Try 0-indexed frame (context.frame=0 -> URL frame=0) 
             if current_frame == 0:
-              # Try 0-indexed first
-              new_frame = new_frame_0indexed
-              print(f"  Trying 0-indexed: frame {current_frame} -> URL frame {new_frame}")
-            else:
-              # For other frames, use 1-indexed
-              new_frame = new_frame_1indexed
-              print(f"  Using 1-indexed: frame {current_frame} -> URL frame {new_frame}")
-              
-            modified_url = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame}/', modified_url)
-            print(f"  Adjusted frame from {original_frame} to {new_frame} for context.frame={current_frame}")
-          else:
-            print(f"  Could not find frame pattern in URL")
+              new_frame_0indexed = current_frame
+              url_0indexed = re.sub(frame_pattern, f'videoframe/{quality}/{new_frame_0indexed}/', preview_url)
+              frame_urls_to_try.append(("frame_0indexed", url_0indexed))
           
-          frame_url = modified_url
-          print(f"  Modified URL: {frame_url}")
+          # Strategy 3: Adjust resolution only (keep original frame)
+          url_high_res = preview_url.replace('resize:fill:150:0:0', f'resize:fill:{video_width}:{video_height}:0')
+          frame_urls_to_try.append(("high_resolution", url_high_res))
+          
+          # Strategy 4: Both frame and resolution
+          if match:
+            url_both = url_high_res
+            if current_frame == 0:
+              # Try 1-indexed for frame 0 with high res
+              url_both = re.sub(frame_pattern, f'videoframe/{quality}/{current_frame + 1}/', url_both)
+              frame_urls_to_try.append(("both_1indexed", url_both))
+          
+          # Try each URL until one works
+          print(f"  Will try {len(frame_urls_to_try)} URL strategies:")
+          for i, (strategy, url) in enumerate(frame_urls_to_try):
+            print(f"    {i+1}. {strategy}: {url}")
+          
+          frame_url = frame_urls_to_try[0][1]  # Start with the first one
+          current_strategy_index = 0
         
-        if frame_url:
-          print(f"  Using frame URL: {frame_url}")
+        if frame_urls_to_try:
+          print(f"  Prepared {len(frame_urls_to_try)} URL strategies to try")
           
           # Create canvas with video dimensions
           temp_canvas = document.createElement('canvas')
@@ -446,12 +448,25 @@ def main(mode='process'):
               print(f"  Error drawing frame to canvas: {e}")
           
           def on_frame_error(event=None):
-            print("  ❌ Error loading frame image - cannot process video")
+            nonlocal current_strategy_index
+            current_strategy_index += 1
+            
+            if current_strategy_index < len(frame_urls_to_try):
+              strategy, next_url = frame_urls_to_try[current_strategy_index]
+              print(f"  ❌ Failed to load with strategy {current_strategy_index}. Trying strategy {current_strategy_index + 1}: {strategy}")
+              print(f"    Next URL: {next_url}")
+              frame_img.src = next_url  # Try the next URL
+            else:
+              print("  ❌ All URL strategies failed - cannot process video")
           
-          # Set up image loading
+          # Set up image loading with fallback mechanism
           frame_img.onload = on_frame_loaded
           frame_img.onerror = on_frame_error
-          frame_img.src = frame_url
+          
+          # Start with the first strategy
+          strategy_name, first_url = frame_urls_to_try[0]
+          print(f"  Starting with strategy 1: {strategy_name}")
+          frame_img.src = first_url
           
           print("  Canvas created, waiting for frame to load...")
           return  # Exit here - processing continues in onload callback
